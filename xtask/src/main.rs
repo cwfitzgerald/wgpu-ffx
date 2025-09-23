@@ -16,7 +16,7 @@ SUBCOMMANDS:
 
 fn main() {
     if let Err(e) = try_main() {
-        eprintln!("{}", e);
+        eprintln!("{e}");
         std::process::exit(1);
     }
 }
@@ -25,7 +25,7 @@ fn try_main() -> Result<()> {
     let mut pargs = pico_args::Arguments::from_env();
 
     if pargs.contains(["-h", "--help"]) {
-        print!("{}", HELP);
+        print!("{HELP}");
         return Ok(());
     }
 
@@ -35,12 +35,12 @@ fn try_main() -> Result<()> {
         "compile-shaders" => compile_shaders::compile_shaders(pargs)?,
         cmd => {
             if cmd.is_empty() {
-                println!("{}", HELP);
+                println!("{HELP}");
             } else {
-                eprintln!("Unknown subcommand: {}", cmd);
+                eprintln!("Unknown subcommand: {cmd}");
                 eprintln!();
-                println!("{}", HELP);
-                return Err(anyhow::anyhow!("Unknown subcommand: {}", cmd));
+                println!("{HELP}");
+                return Err(anyhow::anyhow!("Unknown subcommand: {cmd}"));
             }
         }
     }
