@@ -1,3 +1,6 @@
+[path]
+subdirectory = "fsr3upscaler"
+
 [base]
 FFX_GPU = 1
 FFX_GLSL = 1

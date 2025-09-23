@@ -19,15 +19,17 @@ OPTIONS:
     -h, --help    Print help information
 "#;
 
-const SHADER_DIRECTORY: &str = "../FidelityFX-SDK-v1.1.4/sdk/src/backends/vk/shaders/fsr3upscaler";
+const SDK_BASE_PATH: &str = "../FidelityFX-SDK-v1.1.4/sdk/src/backends/vk/shaders";
 const INCLUDE_DIR: &str = "../FidelityFX-SDK-v1.1.4/sdk/include/FidelityFX/gpu";
 
-fn get_output_directory() -> Result<Utf8PathBuf> {
-    Ok(Utf8PathBuf::from("shaders/compiled"))
+#[derive(Debug, Deserialize)]
+struct PathConfig {
+    subdirectory: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct PermutationConfig {
+    path: PathConfig,
     base: HashMap<String, toml::Value>,
     permutations: HashMap<String, Vec<toml::Value>>,
 }
@@ -37,6 +39,15 @@ struct ShaderPermutation {
     shader_file: Utf8PathBuf,
     permutation_id: String, // For tracking which permutation this represents
     defines: Vec<(String, String)>,
+    output_directory: Utf8PathBuf, // Where to place compiled shader
+}
+
+#[derive(Debug)]
+struct PermutationSet {
+    config: PermutationConfig,
+    config_path: Utf8PathBuf,
+    sdk_shader_directory: Utf8PathBuf,
+    output_directory: Utf8PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -68,21 +79,43 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
 
     println!("Compiling shaders...");
 
-    // Load permutation configuration
-    let perm_config = load_permutation_config()?;
+    // Discover all permutation sets
+    let permutation_sets = discover_permutation_sets()?;
 
-    // Find all GLSL files in the shader directory
-    let glsl_files = find_glsl_files()?;
-
-    if glsl_files.is_empty() {
-        println!("No GLSL files found in {}", SHADER_DIRECTORY);
+    if permutation_sets.is_empty() {
+        println!("No perm.toml files found in shaders/ directory");
         return Ok(());
     }
 
-    // Generate all permutations for all shader files
-    let all_permutations = generate_all_permutations(&glsl_files, &perm_config)?;
+    println!("Found {} shader configurations", permutation_sets.len());
 
-    println!("Found {} GLSL files", glsl_files.len());
+    let mut all_permutations = Vec::new();
+    let mut total_glsl_files = 0;
+
+    // Generate permutations for each set
+    for perm_set in &permutation_sets {
+        let glsl_files = find_glsl_files(&perm_set.sdk_shader_directory)?;
+        total_glsl_files += glsl_files.len();
+
+        if glsl_files.is_empty() {
+            println!("No GLSL files found in {}", perm_set.sdk_shader_directory);
+            continue;
+        }
+
+        let permutations =
+            generate_all_permutations(&glsl_files, &perm_set.config, &perm_set.output_directory)?;
+        all_permutations.extend(permutations);
+    }
+
+    if all_permutations.is_empty() {
+        println!("No shader permutations to compile");
+        return Ok(());
+    }
+
+    println!(
+        "Found {} GLSL files across all configurations",
+        total_glsl_files
+    );
     println!("Generating {} total permutations", all_permutations.len());
 
     // Set up progress bar
@@ -151,8 +184,7 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
     Ok(())
 }
 
-fn load_permutation_config() -> Result<PermutationConfig> {
-    let config_path = "shaders/fsr3upscaler/perm.toml";
+fn load_permutation_config(config_path: &Utf8Path) -> Result<PermutationConfig> {
     let config_content = fs::read_to_string(config_path)
         .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", config_path, e))?;
 
@@ -162,13 +194,54 @@ fn load_permutation_config() -> Result<PermutationConfig> {
     Ok(config)
 }
 
-fn find_glsl_files() -> Result<Vec<Utf8PathBuf>> {
-    let shader_dir = Utf8Path::new(SHADER_DIRECTORY);
+fn discover_permutation_sets() -> Result<Vec<PermutationSet>> {
+    let shaders_dir = Utf8Path::new("shaders");
 
+    if !shaders_dir.exists() {
+        return Err(anyhow::anyhow!(
+            "Shaders directory does not exist: {}",
+            shaders_dir
+        ));
+    }
+
+    let mut permutation_sets = Vec::new();
+
+    // Walk through subdirectories in shaders/
+    for entry in fs::read_dir(shaders_dir)? {
+        let entry = entry?;
+        let path = Utf8PathBuf::try_from(entry.path())
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in path: {}", e))?;
+
+        if path.is_dir() {
+            let perm_file = path.join("perm.toml");
+            if perm_file.exists() {
+                let config = load_permutation_config(&perm_file)?;
+
+                // Build SDK shader directory path
+                let sdk_shader_directory =
+                    Utf8PathBuf::from(SDK_BASE_PATH).join(&config.path.subdirectory);
+
+                // Output directory is the same as the perm.toml directory
+                let output_directory = path.clone();
+
+                permutation_sets.push(PermutationSet {
+                    config,
+                    config_path: perm_file,
+                    sdk_shader_directory,
+                    output_directory,
+                });
+            }
+        }
+    }
+
+    Ok(permutation_sets)
+}
+
+fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     if !shader_dir.exists() {
         return Err(anyhow::anyhow!(
             "Shader directory does not exist: {}",
-            SHADER_DIRECTORY
+            shader_dir
         ));
     }
 
@@ -194,6 +267,7 @@ fn find_glsl_files() -> Result<Vec<Utf8PathBuf>> {
 fn generate_all_permutations(
     glsl_files: &[Utf8PathBuf],
     config: &PermutationConfig,
+    output_directory: &Utf8Path,
 ) -> Result<Vec<ShaderPermutation>> {
     let mut all_permutations = Vec::new();
 
@@ -234,6 +308,7 @@ fn generate_all_permutations(
                 shader_file: shader_file.clone(),
                 permutation_id,
                 defines,
+                output_directory: output_directory.to_path_buf(),
             });
         }
     }
@@ -332,11 +407,13 @@ fn compile_single_permutation(permutation: &ShaderPermutation) -> Result<Compila
     let hash_hex = format!("{:016x}", hash);
 
     // Get the base shader name (without extension)
-    let shader_name = permutation.shader_file.file_stem().unwrap_or("unknown");
+    let shader_name = permutation.shader_file.file_stem().unwrap();
 
     // Create output filename based on shader name and hash
     let output_path =
-        get_output_directory()?.join(format!("{}_{}.spv", shader_name, &hash_hex[..8]));
+        permutation
+            .output_directory
+            .join(format!("{}_{}.spv", shader_name, &hash_hex[..8]));
 
     // Write the compiled shader to disk
     std::fs::create_dir_all(output_path.parent().unwrap())?;
