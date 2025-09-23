@@ -1,3 +1,28 @@
+//! Shader compilation and permutation generation for FidelityFX shaders.
+//!
+//! This module handles the compilation of GLSL shaders from the FidelityFX SDK into SPIR-V,
+//! with support for shader permutations based on preprocessor defines. The system works as follows:
+//!
+//! 1. **Discovery**: Find all `perm.toml` configuration files in the `shaders/` directory
+//! 2. **Permutation Generation**: For each shader and each combination of define values,
+//!    generate a unique shader variant
+//! 3. **Compilation**: Compile all permutations to SPIR-V using `glslc`
+//! 4. **Deduplication**: Hash-based deduplication eliminates identical compiled outputs
+//! 5. **Code Generation**: Generate Rust code with embedded shaders and selection functions
+//!
+//! ## Configuration Format
+//!
+//! Each `perm.toml` file defines:
+//! - `path.subdirectory`: Path within the FidelityFX SDK to find GLSL files
+//! - `base`: Base preprocessor defines applied to all permutations
+//! - `permutations`: Map of define names to arrays of possible values
+//!
+//! ## Output
+//!
+//! For each configuration, generates:
+//! - Compiled SPIR-V files with hash-based names for deduplication
+//! - `shaders.rs` with embedded shader data and selection functions
+
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -19,18 +44,28 @@ OPTIONS:
     -h, --help    Print help information
 "#;
 
+// Configuration constants
 const SDK_BASE_PATH: &str = "../FidelityFX-SDK-v1.1.4/sdk/src/backends/vk/shaders";
 const INCLUDE_DIR: &str = "../FidelityFX-SDK-v1.1.4/sdk/include/FidelityFX/gpu";
+const SHADERS_DIR: &str = "shaders";
+const PERM_CONFIG_FILE: &str = "perm.toml";
+const GENERATED_FILE_NAME: &str = "shaders.rs";
+
+// Hash truncation length for shader file names (8 hex chars = 32 bits)
+const HASH_TRUNCATE_LEN: usize = 8;
 
 #[derive(Debug, Deserialize)]
-struct PathConfig {
+struct ShaderPathConfig {
     subdirectory: String,
 }
 
+/// Configuration for shader permutation generation from perm.toml files
 #[derive(Debug, Deserialize)]
-struct PermutationConfig {
-    path: PathConfig,
+struct ShaderPermutationConfig {
+    path: ShaderPathConfig,
+    /// Base preprocessor defines applied to all shader variants
     base: HashMap<String, toml::Value>,
+    /// Map of define names to their possible values for permutation generation
     permutations: HashMap<String, Vec<toml::Value>>,
 }
 
@@ -42,10 +77,13 @@ struct ShaderPermutation {
     output_directory: Utf8PathBuf, // Where to place compiled shader
 }
 
+/// A shader configuration with its source and output locations
 #[derive(Debug)]
-struct PermutationSet {
-    config: PermutationConfig,
+struct ShaderConfig {
+    config: ShaderPermutationConfig,
+    /// Directory in the FidelityFX SDK containing GLSL source files
     sdk_shader_directory: Utf8PathBuf,
+    /// Directory where compiled shaders and generated code will be written
     output_directory: Utf8PathBuf,
 }
 
@@ -64,54 +102,45 @@ struct DeduplicationInfo {
     space_saved_mb: f64,
 }
 
-pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
-    if args.contains(["-h", "--help"]) {
-        print!("{HELP}");
-        return Ok(());
-    }
-
-    // Check for unexpected arguments
-    let remaining = args.finish();
-    if !remaining.is_empty() {
-        return Err(anyhow::anyhow!("Unexpected arguments: {remaining:?}"));
-    }
-
-    println!("Compiling shaders...");
-
-    // Discover all permutation sets
-    let permutation_sets = discover_permutation_sets()?;
-
-    if permutation_sets.is_empty() {
-        println!("No perm.toml files found in shaders/ directory");
-        return Ok(());
-    }
-
-    println!("Found {} shader configurations", permutation_sets.len());
-
+/// Discover and generate all shader permutations from configurations
+fn generate_all_shader_permutations(
+    shader_configs: &[ShaderConfig],
+) -> Result<(Vec<ShaderPermutation>, usize)> {
     let mut all_permutations = Vec::new();
     let mut total_glsl_files = 0;
 
-    // Generate permutations for each set
-    for perm_set in &permutation_sets {
-        let glsl_files = find_glsl_files(&perm_set.sdk_shader_directory)?;
+    for shader_config in shader_configs {
+        let glsl_files = find_glsl_files(&shader_config.sdk_shader_directory)?;
         total_glsl_files += glsl_files.len();
 
         if glsl_files.is_empty() {
-            println!("No GLSL files found in {}", perm_set.sdk_shader_directory);
+            println!(
+                "No GLSL files found in {}",
+                shader_config.sdk_shader_directory
+            );
             continue;
         }
 
-        let permutations =
-            generate_all_permutations(&glsl_files, &perm_set.config, &perm_set.output_directory)?;
+        let permutations = generate_all_permutations(
+            &glsl_files,
+            &shader_config.config,
+            &shader_config.output_directory,
+        )?;
         all_permutations.extend(permutations);
     }
 
+    Ok((all_permutations, total_glsl_files))
+}
+
+/// Compile all shader permutations and return results with error count
+fn compile_all_permutations(
+    all_permutations: &[ShaderPermutation],
+) -> Result<(Vec<CompilationResult>, usize)> {
     if all_permutations.is_empty() {
         println!("No shader permutations to compile");
-        return Ok(());
+        return Ok((Vec::new(), 0));
     }
 
-    println!("Found {total_glsl_files} GLSL files across all configurations");
     println!("Generating {} total permutations", all_permutations.len());
 
     // Set up progress bar
@@ -134,7 +163,7 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
 
     progress.finish_with_message("Compilation complete!");
 
-    // Process results and perform deduplication
+    // Process results and separate successes from errors
     let mut successful_results = Vec::new();
     let mut error_count = 0;
 
@@ -153,6 +182,41 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
         }
     }
 
+    Ok((successful_results, error_count))
+}
+
+pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
+    if args.contains(["-h", "--help"]) {
+        print!("{HELP}");
+        return Ok(());
+    }
+
+    // Check for unexpected arguments
+    let remaining = args.finish();
+    if !remaining.is_empty() {
+        return Err(anyhow::anyhow!("Unexpected arguments: {remaining:?}"));
+    }
+
+    println!("Compiling shaders...");
+
+    // Discover all shader configurations
+    let shader_configs = discover_shader_configs()?;
+
+    if shader_configs.is_empty() {
+        println!("No perm.toml files found in shaders/ directory");
+        return Ok(());
+    }
+
+    println!("Found {} shader configurations", shader_configs.len());
+
+    // Generate all shader permutations
+    let (all_permutations, total_glsl_files) = generate_all_shader_permutations(&shader_configs)?;
+
+    println!("Found {total_glsl_files} GLSL files across all configurations");
+
+    // Compile all permutations
+    let (successful_results, error_count) = compile_all_permutations(&all_permutations)?;
+
     if error_count > 0 {
         eprintln!("{error_count} shader compilations failed");
     }
@@ -170,9 +234,9 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
     );
     println!("Space saved: {:.2} MB", dedup_info.space_saved_mb);
 
-    // Generate Rust embedding code for each permutation set
-    for perm_set in &permutation_sets {
-        generate_rust_embedding(perm_set, &all_permutations, &successful_results)?;
+    // Generate Rust embedding code for each shader configuration
+    for shader_config in &shader_configs {
+        generate_rust_embedding(shader_config, &all_permutations, &successful_results)?;
     }
 
     if error_count > 0 {
@@ -182,37 +246,38 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
     Ok(())
 }
 
-fn load_permutation_config(config_path: &Utf8Path) -> Result<PermutationConfig> {
+fn load_shader_config(config_path: &Utf8Path) -> Result<ShaderPermutationConfig> {
     let config_content = fs::read_to_string(config_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read {config_path}: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read shader config {config_path}: {e}"))?;
 
-    let config: PermutationConfig = toml::from_str(&config_content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse {config_path}: {e}"))?;
+    let config: ShaderPermutationConfig = toml::from_str(&config_content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse shader config {config_path}: {e}"))?;
 
     Ok(config)
 }
 
-fn discover_permutation_sets() -> Result<Vec<PermutationSet>> {
-    let shaders_dir = Utf8Path::new("shaders");
+fn discover_shader_configs() -> Result<Vec<ShaderConfig>> {
+    let shaders_dir = Utf8Path::new(SHADERS_DIR);
 
     if !shaders_dir.exists() {
         return Err(anyhow::anyhow!(
-            "Shaders directory does not exist: {shaders_dir}"
+            "Shaders configuration directory not found: {shaders_dir}\n\
+            Please create the shaders/ directory and add perm.toml configuration files."
         ));
     }
 
-    let mut permutation_sets = Vec::new();
+    let mut shader_configs = Vec::new();
 
     // Walk through subdirectories in shaders/
     for entry in fs::read_dir(shaders_dir)? {
         let entry = entry?;
         let path = Utf8PathBuf::try_from(entry.path())
-            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in path: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in shader directory path: {e}"))?;
 
         if path.is_dir() {
-            let perm_file = path.join("perm.toml");
+            let perm_file = path.join(PERM_CONFIG_FILE);
             if perm_file.exists() {
-                let config = load_permutation_config(&perm_file)?;
+                let config = load_shader_config(&perm_file)?;
 
                 // Build SDK shader directory path
                 let sdk_shader_directory =
@@ -221,7 +286,7 @@ fn discover_permutation_sets() -> Result<Vec<PermutationSet>> {
                 // Output directory is the same as the perm.toml directory
                 let output_directory = path.clone();
 
-                permutation_sets.push(PermutationSet {
+                shader_configs.push(ShaderConfig {
                     config,
                     sdk_shader_directory,
                     output_directory,
@@ -230,13 +295,14 @@ fn discover_permutation_sets() -> Result<Vec<PermutationSet>> {
         }
     }
 
-    Ok(permutation_sets)
+    Ok(shader_configs)
 }
 
 fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     if !shader_dir.exists() {
         return Err(anyhow::anyhow!(
-            "Shader directory does not exist: {shader_dir}"
+            "FidelityFX shader directory not found: {shader_dir}\n\
+            Please ensure the FidelityFX SDK is present at the expected location."
         ));
     }
 
@@ -245,7 +311,7 @@ fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
     for entry in fs::read_dir(shader_dir)? {
         let entry = entry?;
         let path = Utf8PathBuf::try_from(entry.path())
-            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in path: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in shader file path: {e}"))?;
 
         if path.is_file() {
             if let Some(extension) = path.extension() {
@@ -261,7 +327,7 @@ fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 
 fn generate_all_permutations(
     glsl_files: &[Utf8PathBuf],
-    config: &PermutationConfig,
+    config: &ShaderPermutationConfig,
     output_directory: &Utf8Path,
 ) -> Result<Vec<ShaderPermutation>> {
     let mut all_permutations = Vec::new();
@@ -327,8 +393,8 @@ fn toml_value_to_string(value: &toml::Value) -> String {
     }
 }
 
-/// Convert parameter name like "FFX_HALF" to enum name like "Half"
-fn param_name_to_enum_name(param_name: &str) -> String {
+/// Convert shader parameter name like "FFX_HALF" to Rust enum name like "Half"
+fn shader_param_to_enum_name(param_name: &str) -> String {
     param_name
         .strip_prefix("FFX_")
         .unwrap_or(param_name)
@@ -344,8 +410,8 @@ fn param_name_to_enum_name(param_name: &str) -> String {
         .collect::<String>()
 }
 
-/// Convert parameter name like "FFX_HALF" to function parameter name like "half"
-fn param_name_to_function_param(param_name: &str) -> String {
+/// Convert shader parameter name like "FFX_HALF" to function parameter name like "half"
+fn shader_param_to_function_param(param_name: &str) -> String {
     param_name.to_lowercase().replace("ffx_", "")
 }
 
@@ -410,7 +476,14 @@ fn compile_single_permutation(permutation: &ShaderPermutation) -> Result<Compila
         let stderr = String::from_utf8_lossy(&output.stderr);
         let command_str = format_command(&cmd);
         return Err(anyhow::anyhow!(
-            "glslc failed for {}:\nCommand: {}\nError: {}",
+            "Shader compilation failed for permutation '{}'\n\
+            Command: {}\n\
+            Error: {}\n\
+            \n\
+            This usually indicates:\n\
+            - Missing glslc compiler (install Vulkan SDK)\n\
+            - Invalid shader syntax or defines\n\
+            - Incorrect include paths",
             permutation.permutation_id,
             command_str,
             stderr
@@ -426,11 +499,12 @@ fn compile_single_permutation(permutation: &ShaderPermutation) -> Result<Compila
     // Get the base shader name (without extension)
     let shader_name = permutation.shader_file.file_stem().unwrap();
 
-    // Create output filename based on shader name and hash
-    let output_path =
-        permutation
-            .output_directory
-            .join(format!("{}_{}.spv", shader_name, &hash_hex[..8]));
+    // Create output filename based on shader name and hash (8 hex chars for readability)
+    let output_path = permutation.output_directory.join(format!(
+        "{}_{}.spv",
+        shader_name,
+        &hash_hex[..HASH_TRUNCATE_LEN]
+    ));
 
     // Write the compiled shader to disk
     std::fs::create_dir_all(output_path.parent().unwrap())?;
@@ -480,19 +554,19 @@ fn analyze_deduplication(results: &[CompilationResult]) -> DeduplicationInfo {
 }
 
 fn generate_rust_embedding(
-    perm_set: &PermutationSet,
+    shader_config: &ShaderConfig,
     all_permutations: &[ShaderPermutation],
     compilation_results: &[CompilationResult],
 ) -> Result<()> {
-    // Filter permutations and results for this specific permutation set
+    // Filter permutations and results for this specific shader configuration
     let relevant_permutations: Vec<_> = all_permutations
         .iter()
-        .filter(|p| p.output_directory == perm_set.output_directory)
+        .filter(|p| p.output_directory == shader_config.output_directory)
         .collect();
 
     let relevant_results: Vec<_> = compilation_results
         .iter()
-        .filter(|r| r.output_path.starts_with(&perm_set.output_directory))
+        .filter(|r| r.output_path.starts_with(&shader_config.output_directory))
         .collect();
 
     if relevant_permutations.is_empty() || relevant_results.is_empty() {
@@ -501,14 +575,14 @@ fn generate_rust_embedding(
 
     println!(
         "Generating Rust embedding for {}",
-        perm_set.output_directory
+        shader_config.output_directory
     );
 
     // Generate the Rust code
-    let rust_code = generate_rust_code(perm_set, &relevant_permutations, &relevant_results)?;
+    let rust_code = generate_rust_code(shader_config, &relevant_permutations, &relevant_results)?;
 
     // Write to a .rs file in the same directory
-    let rust_file_path = perm_set.output_directory.join("shaders.rs");
+    let rust_file_path = shader_config.output_directory.join(GENERATED_FILE_NAME);
     fs::write(&rust_file_path, rust_code)?;
 
     println!("Generated {rust_file_path}");
@@ -517,7 +591,7 @@ fn generate_rust_embedding(
 }
 
 fn generate_rust_code(
-    perm_set: &PermutationSet,
+    shader_config: &ShaderConfig,
     permutations: &[&ShaderPermutation],
     results: &[&CompilationResult],
 ) -> Result<String> {
@@ -528,23 +602,23 @@ fn generate_rust_code(
     code.push_str("// DO NOT EDIT MANUALLY\n\n");
 
     // Generate enums for each permutation parameter
-    generate_permutation_enums(&mut code, &perm_set.config)?;
+    generate_permutation_enums(&mut code, &shader_config.config)?;
 
     // Generate embedded shader data
-    generate_embedded_shaders(&mut code, perm_set, results)?;
+    generate_embedded_shaders(&mut code, shader_config, results)?;
 
     // Generate shader struct
-    generate_shader_struct(&mut code, perm_set, results)?;
+    generate_shader_struct(&mut code, shader_config, results)?;
 
     // Generate choice function
-    generate_choice_function(&mut code, perm_set, permutations, results)?;
+    generate_choice_function(&mut code, shader_config, permutations, results)?;
 
     Ok(code)
 }
 
-fn generate_permutation_enums(code: &mut String, config: &PermutationConfig) -> Result<()> {
+fn generate_permutation_enums(code: &mut String, config: &ShaderPermutationConfig) -> Result<()> {
     for (param_name, values) in &config.permutations {
-        let enum_name = param_name_to_enum_name(param_name);
+        let enum_name = shader_param_to_enum_name(param_name);
 
         code.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
         code.push_str(&format!("pub enum {enum_name} {{\n"));
@@ -581,7 +655,7 @@ fn generate_permutation_enums(code: &mut String, config: &PermutationConfig) -> 
 
 fn generate_embedded_shaders(
     code: &mut String,
-    _perm_set: &PermutationSet,
+    _shader_config: &ShaderConfig,
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Get unique shaders by hash
@@ -591,7 +665,7 @@ fn generate_embedded_shaders(
     }
 
     for (hash, result) in &unique_shaders {
-        let var_name = format!("SHADER_{}", &hash[..8].to_uppercase());
+        let var_name = format!("SHADER_{}", &hash[..HASH_TRUNCATE_LEN].to_uppercase());
 
         code.push_str(&format!(
             "static {var_name}: &[u8] = include_bytes!(\"{}\");\n",
@@ -605,7 +679,7 @@ fn generate_embedded_shaders(
 
 fn generate_shader_struct(
     code: &mut String,
-    _perm_set: &PermutationSet,
+    _shader_config: &ShaderConfig,
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Get unique shader names
@@ -638,28 +712,28 @@ fn generate_shader_struct(
     Ok(())
 }
 
-fn generate_choice_function(
-    code: &mut String,
-    perm_set: &PermutationSet,
-    _permutations: &[&ShaderPermutation],
-    results: &[&CompilationResult],
-) -> Result<()> {
-    // Build result lookup by permutation ID
-    let result_lookup: HashMap<String, &CompilationResult> = results
-        .iter()
-        .map(|r| (r.permutation_id.clone(), *r))
-        .collect();
-
-    // Get parameter names and their possible values for function signature
-    let mut param_info: Vec<(String, String, Vec<String>)> = Vec::new();
-    for (param_name, values) in &perm_set.config.permutations {
-        let enum_name = param_name_to_enum_name(param_name);
-        let param_name_lower = param_name_to_function_param(param_name);
-        let value_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
-        param_info.push((param_name_lower, enum_name, value_strings));
+/// Extract unique shader names from compilation results  
+fn extract_shader_names(results: &[&CompilationResult]) -> Vec<String> {
+    let mut shader_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for result in results {
+        if let Some(name) = result.output_path.file_stem() {
+            // Extract shader name part (before the hash)
+            if let Some(underscore_pos) = name.rfind('_') {
+                let shader_name = &name[..underscore_pos];
+                shader_names.insert(shader_name.to_string());
+            }
+        }
     }
+    let mut sorted_names: Vec<_> = shader_names.into_iter().collect();
+    sorted_names.sort();
+    sorted_names
+}
 
-    // Generate function signature
+/// Generate function signature for shader selection function
+fn generate_choice_function_signature(
+    code: &mut String,
+    param_info: &[(String, String, Vec<String>)],
+) {
     code.push_str("#[inline(always)]\n");
     code.push_str("pub fn choose_shaders(");
     for (i, (param_name_lower, enum_name, _)) in param_info.iter().enumerate() {
@@ -669,8 +743,15 @@ fn generate_choice_function(
         code.push_str(&format!("{param_name_lower}: {enum_name}"));
     }
     code.push_str(") -> Shaders {\n");
+}
 
-    // Generate match statement
+/// Generate match patterns and shader assignments for choice function
+fn generate_choice_function_matches(
+    code: &mut String,
+    param_info: &[(String, String, Vec<String>)],
+    result_lookup: &HashMap<String, &CompilationResult>,
+    shader_names: &[String],
+) {
     code.push_str("    match (");
     for (i, (param_name_lower, _, _)) in param_info.iter().enumerate() {
         if i > 0 {
@@ -680,35 +761,19 @@ fn generate_choice_function(
     }
     code.push_str(") {\n");
 
-    // Build all possible permutation combinations and map them to shaders
-    let combinations = generate_all_enum_combinations(&param_info);
+    // Generate all possible enum combinations and map them to shaders
+    let combinations = generate_all_enum_combinations(param_info);
 
-    // Get all unique shader names (base shader types)
-    let mut shader_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for result in results {
-        if let Some(name) = result.output_path.file_stem() {
-            if let Some(underscore_pos) = name.rfind('_') {
-                let shader_name = &name[..underscore_pos];
-                shader_names.insert(shader_name.to_string());
-            }
-        }
-    }
-    let mut shader_names: Vec<_> = shader_names.into_iter().collect();
-    shader_names.sort();
-
-    // Generate each match case
     for combination in combinations {
         // Convert enum combination to TOML values for lookup
-        let mut lookup_values = Vec::new();
-        for enum_variant in &combination {
-            // Map On/Off back to 1/0
-            let value = match enum_variant.as_str() {
-                "On" => "1",
-                "Off" => "0",
-                _ => "0", // Default case
-            };
-            lookup_values.push(value.to_string());
-        }
+        let lookup_values: Vec<String> = combination
+            .iter()
+            .map(|enum_variant| match enum_variant.as_str() {
+                "On" => "1".to_string(),
+                "Off" => "0".to_string(),
+                _ => "0".to_string(), // Default case
+            })
+            .collect();
 
         // Generate match pattern
         code.push_str("        (");
@@ -721,8 +786,8 @@ fn generate_choice_function(
         }
         code.push_str(") => Shaders {\n");
 
-        // For each shader type, find the corresponding compiled shader
-        for shader_name in &shader_names {
+        // Generate shader assignments for this permutation
+        for shader_name in shader_names {
             let field_name = shader_name
                 .replace("ffx_fsr3upscaler_", "")
                 .replace("_pass", "");
@@ -735,7 +800,7 @@ fn generate_choice_function(
             }
 
             if let Some(result) = result_lookup.get(&permutation_id) {
-                let hash_short = &result.content_hash[..8].to_uppercase();
+                let hash_short = &result.content_hash[..HASH_TRUNCATE_LEN].to_uppercase();
                 code.push_str(&format!("            {field_name}: SHADER_{hash_short},\n"));
             } else {
                 // This shouldn't happen, but provide a fallback
@@ -748,6 +813,37 @@ fn generate_choice_function(
 
     code.push_str("    }\n");
     code.push_str("}\n");
+}
+
+fn generate_choice_function(
+    code: &mut String,
+    shader_config: &ShaderConfig,
+    _permutations: &[&ShaderPermutation],
+    results: &[&CompilationResult],
+) -> Result<()> {
+    // Build result lookup by permutation ID
+    let result_lookup: HashMap<String, &CompilationResult> = results
+        .iter()
+        .map(|r| (r.permutation_id.clone(), *r))
+        .collect();
+
+    // Get parameter info for function signature
+    let mut param_info: Vec<(String, String, Vec<String>)> = Vec::new();
+    for (param_name, values) in &shader_config.config.permutations {
+        let enum_name = shader_param_to_enum_name(param_name);
+        let param_name_lower = shader_param_to_function_param(param_name);
+        let value_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
+        param_info.push((param_name_lower, enum_name, value_strings));
+    }
+
+    // Get all unique shader names from results
+    let shader_names = extract_shader_names(results);
+
+    // Generate function signature
+    generate_choice_function_signature(code, &param_info);
+
+    // Generate match patterns and shader assignments
+    generate_choice_function_matches(code, &param_info, &result_lookup, &shader_names);
 
     Ok(())
 }
