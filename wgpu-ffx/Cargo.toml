@@ -1,0 +1,6 @@
+[package]
+name = "wgpu-ffx"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

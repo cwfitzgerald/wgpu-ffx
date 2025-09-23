@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["wgpu-ffx", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.lints]
+
+[workspace.dependencies]
+pico-args = "0.5"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+rayon = "1.8"
+indicatif = "0.17"
+camino = { version = "1.1", features = ["serde1"] }
