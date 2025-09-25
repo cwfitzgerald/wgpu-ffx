@@ -28,11 +28,12 @@ use camino::{Utf8Path, Utf8PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::fs;
-use std::hash::{Hash, Hasher};
-use std::process::Command;
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    fs,
+    hash::{Hash, Hasher},
+    process::Command,
+};
 
 pub const HELP: &str = r#"xtask-compile-shaders
 Compile shaders for the project
@@ -45,8 +46,8 @@ OPTIONS:
 "#;
 
 // Configuration constants
-const SDK_BASE_PATH: &str = "../FidelityFX-SDK-v1.1.4/sdk/src/backends/vk/shaders";
-const INCLUDE_DIR: &str = "../FidelityFX-SDK-v1.1.4/sdk/include/FidelityFX/gpu";
+const SDK_BASE_PATH: &str = "ffx/sdk/src/backends/vk/shaders";
+const INCLUDE_DIR: &str = "ffx/sdk/include/FidelityFX/gpu";
 const SHADERS_DIR: &str = "shaders";
 const PERM_CONFIG_FILE: &str = "perm.toml";
 const GENERATED_FILE_NAME: &str = "shaders.rs";

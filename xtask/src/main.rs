@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+mod clone;
 mod compile_shaders;
 
 const HELP: &str = r#"xtask
@@ -12,6 +13,7 @@ OPTIONS:
 
 SUBCOMMANDS:
     compile-shaders    Compile shaders for the project
+    clone             Download and extract FidelityFX SDK
 "#;
 
 fn main() {
@@ -24,24 +26,25 @@ fn main() {
 fn try_main() -> Result<()> {
     let mut pargs = pico_args::Arguments::from_env();
 
-    if pargs.contains(["-h", "--help"]) {
-        print!("{HELP}");
+    let subcommand = pargs.subcommand()?.unwrap_or_default();
+
+    if subcommand.is_empty() {
+        if pargs.contains(["-h", "--help"]) {
+            print!("{HELP}");
+            return Ok(());
+        }
+        println!("{HELP}");
         return Ok(());
     }
 
-    let subcommand = pargs.subcommand()?.unwrap_or_default();
-
     match subcommand.as_str() {
         "compile-shaders" => compile_shaders::compile_shaders(pargs)?,
+        "clone" => clone::clone(pargs)?,
         cmd => {
-            if cmd.is_empty() {
-                println!("{HELP}");
-            } else {
-                eprintln!("Unknown subcommand: {cmd}");
-                eprintln!();
-                println!("{HELP}");
-                return Err(anyhow::anyhow!("Unknown subcommand: {cmd}"));
-            }
+            eprintln!("Unknown subcommand: {cmd}");
+            eprintln!();
+            println!("{HELP}");
+            return Err(anyhow::anyhow!("Unknown subcommand: {cmd}"));
         }
     }
 
