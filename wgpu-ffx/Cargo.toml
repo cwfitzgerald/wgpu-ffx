@@ -4,3 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+bitflags.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
+wgpu = { workspace = true, features = ["spirv"] }
