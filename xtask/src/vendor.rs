@@ -6,11 +6,11 @@
 use anyhow::{Context, Result};
 use std::{fs, path::Path, process::Command};
 
-pub const HELP: &str = r#"xtask-clone
+pub const HELP: &str = r#"xtask-vendor
 Download and extract FidelityFX SDK
 
 USAGE:
-    xtask clone [OPTIONS]
+    xtask vendor [OPTIONS]
 
 OPTIONS:
     -h, --help    Print help information
@@ -20,7 +20,7 @@ const SDK_URL: &str = "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SD
 const ZIP_FILENAME: &str = "FidelityFX-SDK-v1.1.4.zip";
 const EXTRACT_DIR: &str = "ffx";
 
-pub fn clone(mut args: pico_args::Arguments) -> Result<()> {
+pub fn vendor(mut args: pico_args::Arguments) -> Result<()> {
     if args.contains(["-h", "--help"]) {
         print!("{HELP}");
         return Ok(());
@@ -40,9 +40,7 @@ pub fn clone(mut args: pico_args::Arguments) -> Result<()> {
     println!("Cleaning up...");
     cleanup_zip()?;
 
-    println!(
-        "FidelityFX SDK successfully downloaded and extracted to '{EXTRACT_DIR}'"
-    );
+    println!("FidelityFX SDK successfully downloaded and extracted to '{EXTRACT_DIR}'");
 
     Ok(())
 }

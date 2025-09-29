@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-mod clone;
 mod compile_shaders;
+mod vendor;
 
 const HELP: &str = r#"xtask
 
@@ -13,7 +13,7 @@ OPTIONS:
 
 SUBCOMMANDS:
     compile-shaders    Compile shaders for the project
-    clone             Download and extract FidelityFX SDK
+    vendor             Download and extract FidelityFX SDK
 "#;
 
 fn main() {
@@ -39,7 +39,7 @@ fn try_main() -> Result<()> {
 
     match subcommand.as_str() {
         "compile-shaders" => compile_shaders::compile_shaders(pargs)?,
-        "clone" => clone::clone(pargs)?,
+        "vendor" => vendor::vendor(pargs)?,
         cmd => {
             eprintln!("Unknown subcommand: {cmd}");
             eprintln!();

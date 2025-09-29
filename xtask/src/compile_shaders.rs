@@ -46,8 +46,8 @@ OPTIONS:
 "#;
 
 // Configuration constants
-const SDK_BASE_PATH: &str = "ffx/sdk/src/backends/vk/shaders";
-const INCLUDE_DIR: &str = "ffx/sdk/include/FidelityFX/gpu";
+const SDK_BASE_PATH: &str = "shaders/src";
+const INCLUDE_DIR: &str = "shaders/include";
 const SHADERS_DIR: &str = "wgpu-ffx-shaders-spv/src";
 const PERM_CONFIG_FILE: &str = "perm.toml";
 const GENERATED_FILE_NAME: &str = "mod.rs";
