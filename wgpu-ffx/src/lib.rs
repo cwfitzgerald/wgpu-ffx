@@ -1,6 +1,8 @@
+use wgpu::util::DeviceExt;
+
 mod lanczos2;
 
-struct FsrContext {
+pub struct FsrContext {
     device: wgpu::Device,
 
     constants: Constants,
@@ -26,28 +28,24 @@ impl FsrContext {
             ..Default::default()
         };
 
-        let lanczos2_lut = lanczos2::generate_lanczos2_lut();
-
-        let half_max_render_size = [info.max_render_size[0] / 2, info.max_render_size[1] / 2];
-
         todo!()
     }
 }
 
 pub struct FsrContextInfo {
     /// The wgpu device to use for GPU operations.
-    device: wgpu::Device,
+    pub device: wgpu::Device,
     /// The maximum resolution in pixels that the application will render will at.
-    max_render_size: [u32; 2],
+    pub max_render_size: [u32; 2],
     /// The maximum resolution in pixels that FSR will upscale to.
-    max_upscale_size: [u32; 2],
+    pub max_upscale_size: [u32; 2],
     /// Configuration options for the FSR context.
-    flags: FsrContextFlags,
+    pub flags: FsrContextFlags,
 }
 
 bitflags::bitflags! {
     /// Configuration options for the FSR context.
-    struct FsrContextFlags: u32 {
+    pub struct FsrContextFlags: u32 {
         /// A bit indicating if the input color data provided is using a high-dynamic range.
         const HIGH_DYNAMIC_RANGE = 1 << 0;
         /// A bit indicating if the motion vectors are rendered at display resolution.
@@ -109,16 +107,303 @@ struct FsrResources {
     intermediate_fp16x1: wgpu::Texture,
     shading_change: wgpu::Texture,
     new_locks: wgpu::Texture,
-    internal_upscaled_color_1: wgpu::Texture,
-    internal_upscaled_color_2: wgpu::Texture,
+    internal_upscaled_1: wgpu::Texture,
+    internal_upscaled_2: wgpu::Texture,
     spd_mips: wgpu::Texture,
     farthest_depth_mip1: wgpu::Texture,
     luma_history1: wgpu::Texture,
     luma_history2: wgpu::Texture,
-    spd_atomic_count: wgpu::Buffer,
+    spd_atomic_count: wgpu::Texture,
     dilated_reactive_masks: wgpu::Texture,
-    lanczos2_lut: wgpu::Buffer,
-    internal_default_reactivity_mask: wgpu::Texture,
+    lanczos2_lut: wgpu::Texture,
+    default_reactivity_mask: wgpu::Texture,
     default_exposure: wgpu::Texture,
     frame_info: wgpu::Texture,
+}
+
+impl FsrResources {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        max_render_size_array: [u32; 2],
+        max_upscale_size_array: [u32; 2],
+    ) -> Self {
+        let lanczos2_lut_data = lanczos2::generate_lanczos2_lut();
+
+        let max_render_size = wgpu::Extent3d {
+            width: max_render_size_array[0],
+            height: max_render_size_array[1],
+            depth_or_array_layers: 1,
+        };
+
+        let half_max_render_size = wgpu::Extent3d {
+            width: max_render_size_array[0] / 2,
+            height: max_render_size_array[1] / 2,
+            depth_or_array_layers: 1,
+        };
+
+        let max_upscale_size = wgpu::Extent3d {
+            width: max_upscale_size_array[0],
+            height: max_upscale_size_array[1],
+            depth_or_array_layers: 1,
+        };
+
+        let accumulation_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Accumulation 1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let accumulation_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Accumulation 2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma 1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma 2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let intermediate_fp16x1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Intermediate FP16x1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let shading_change = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Shading Change"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let new_locks = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 New Locks"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let internal_upscaled_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Internal Upscaled 1"),
+            size: max_upscale_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let internal_upscaled_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Internal Upscaled 2"),
+            size: max_upscale_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let spd_mips = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 SPD Mips"),
+            size: half_max_render_size,
+            mip_level_count: half_max_render_size.max_mips(wgpu::TextureDimension::D2),
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg16Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let farthest_depth_mip1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Farthest Depth Mip1"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_history1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma History1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_history2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma History2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        // This needs to be initialized to zero, but wgpu does this for us.
+        let spd_atomic_counter = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 SPD Atomic Counter"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Uint,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let dilated_reactive_masks = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Dilated Reactive Masks"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let lanczos2_lut = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("FSR3 Lanczos2 LUT"),
+                size: wgpu::Extent3d {
+                    width: lanczos2_lut_data.len() as u32,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R16Snorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::default(),
+            bytemuck::cast_slice(&lanczos2_lut_data),
+        );
+
+        // This needs to be initialized to zero, but wgpu does this for us.
+        let default_reactivity_mask = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Default Reactivity Mask"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let default_exposure = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Default Exposure"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let frame_info = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Frame Info"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        Self {
+            accumulation_1,
+            accumulation_2,
+            luma_1,
+            luma_2,
+            intermediate_fp16x1,
+            shading_change,
+            new_locks,
+            internal_upscaled_1,
+            internal_upscaled_2,
+            spd_mips,
+            farthest_depth_mip1,
+            luma_history1,
+            luma_history2,
+            spd_atomic_count: spd_atomic_counter,
+            dilated_reactive_masks,
+            lanczos2_lut,
+            default_reactivity_mask,
+            default_exposure,
+            frame_info,
+        }
+    }
 }

@@ -48,9 +48,9 @@ OPTIONS:
 // Configuration constants
 const SDK_BASE_PATH: &str = "ffx/sdk/src/backends/vk/shaders";
 const INCLUDE_DIR: &str = "ffx/sdk/include/FidelityFX/gpu";
-const SHADERS_DIR: &str = "shaders";
+const SHADERS_DIR: &str = "wgpu-ffx-shaders-spv/src";
 const PERM_CONFIG_FILE: &str = "perm.toml";
-const GENERATED_FILE_NAME: &str = "shaders.rs";
+const GENERATED_FILE_NAME: &str = "mod.rs";
 
 // Hash truncation length for shader file names (8 hex chars = 32 bits)
 const HASH_TRUNCATE_LEN: usize = 8;
