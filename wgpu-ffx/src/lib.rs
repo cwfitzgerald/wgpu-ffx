@@ -99,6 +99,93 @@ struct Constants {
     min_disocclusion_accumulation: f32,
 }
 
+enum AccessType {
+    SRV,
+    UAV,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum FrameKind {
+    #[default]
+    Even,
+    Odd,
+}
+
+impl FrameKind {
+    fn advance(&mut self) {
+        *self = match self {
+            FrameKind::Even => FrameKind::Odd,
+            FrameKind::Odd => FrameKind::Even,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FsrResourceName {
+    Accumulation,
+    Luma,
+    IntermediateFp16x1,
+    ShadingChange,
+    NewLocks,
+    InternalUpscaled,
+    SpdMips,
+    FarthestDepthMip1,
+    LumaHistory,
+    SpdAtomicCount,
+    DilatedReactiveMasks,
+    Lanczos2Lut,
+    DefaultReactivityMask,
+    DefaultExposure,
+    FrameInfo,
+}
+
+impl FsrResourceName {
+    fn format(&self) -> wgpu::TextureFormat {
+        match self {
+            FsrResourceName::Accumulation => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::Luma => wgpu::TextureFormat::R16Float,
+            FsrResourceName::IntermediateFp16x1 => wgpu::TextureFormat::R16Float,
+            FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::NewLocks => wgpu::TextureFormat::R8Uint,
+            FsrResourceName::InternalUpscaled => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
+            FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
+            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::SpdAtomicCount => wgpu::TextureFormat::R32Uint,
+            FsrResourceName::DilatedReactiveMasks => wgpu::TextureFormat::Rgba8Unorm,
+            FsrResourceName::Lanczos2Lut => wgpu::TextureFormat::R16Snorm,
+            FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::DefaultExposure => wgpu::TextureFormat::Rg32Float,
+            FsrResourceName::FrameInfo => wgpu::TextureFormat::Rgba32Float,
+        }
+    }
+
+    fn to_bgl_entry(&self, binding: u32, access_type: AccessType) -> wgpu::BindGroupLayoutEntry {
+        match access_type {
+            AccessType::UAV => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::ReadWrite,
+                    format: self.format(),
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            AccessType::SRV => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+        }
+    }
+}
+
 struct FsrResources {
     accumulation_1: wgpu::Texture,
     accumulation_2: wgpu::Texture,
@@ -404,6 +491,63 @@ impl FsrResources {
             default_reactivity_mask,
             default_exposure,
             frame_info,
+        }
+    }
+
+    fn to_view<'a>(
+        &'a self,
+        name: FsrResourceName,
+        index: u8,
+        descriptor: Option<wgpu::TextureViewDescriptor>,
+    ) -> wgpu::TextureView {
+        let descriptor = descriptor.unwrap_or_default();
+
+        match name {
+            FsrResourceName::Accumulation => {
+                if index == 0 {
+                    self.accumulation_1.create_view(&descriptor)
+                } else {
+                    self.accumulation_2.create_view(&descriptor)
+                }
+            }
+            FsrResourceName::Luma => {
+                if index == 0 {
+                    self.luma_1.create_view(&descriptor)
+                } else {
+                    self.luma_2.create_view(&descriptor)
+                }
+            }
+            FsrResourceName::IntermediateFp16x1 => {
+                self.intermediate_fp16x1.create_view(&descriptor)
+            }
+            FsrResourceName::ShadingChange => self.shading_change.create_view(&descriptor),
+            FsrResourceName::NewLocks => self.new_locks.create_view(&descriptor),
+            FsrResourceName::InternalUpscaled => {
+                if index == 0 {
+                    self.internal_upscaled_1.create_view(&descriptor)
+                } else {
+                    self.internal_upscaled_2.create_view(&descriptor)
+                }
+            }
+            FsrResourceName::SpdMips => self.spd_mips.create_view(&descriptor),
+            FsrResourceName::FarthestDepthMip1 => self.farthest_depth_mip1.create_view(&descriptor),
+            FsrResourceName::LumaHistory => {
+                if index == 0 {
+                    self.luma_history1.create_view(&descriptor)
+                } else {
+                    self.luma_history2.create_view(&descriptor)
+                }
+            }
+            FsrResourceName::SpdAtomicCount => self.spd_atomic_count.create_view(&descriptor),
+            FsrResourceName::DilatedReactiveMasks => {
+                self.dilated_reactive_masks.create_view(&descriptor)
+            }
+            FsrResourceName::Lanczos2Lut => self.lanczos2_lut.create_view(&descriptor),
+            FsrResourceName::DefaultReactivityMask => {
+                self.default_reactivity_mask.create_view(&descriptor)
+            }
+            FsrResourceName::DefaultExposure => self.default_exposure.create_view(&descriptor),
+            FsrResourceName::FrameInfo => self.frame_info.create_view(&descriptor),
         }
     }
 }

@@ -14,9 +14,9 @@ anyhow = "1.0"
 bitflags = "2"
 bytemuck = "1.14"
 camino = { version = "1.1", features = ["serde1"] }
-indicatif = "0.17"
+indicatif = "0.18"
 pico-args = "0.5"
 rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+toml = "0.9"
 wgpu = { version = "26", default-features = false }
