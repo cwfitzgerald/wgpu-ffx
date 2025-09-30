@@ -12,8 +12,10 @@ FFX_FSR3UPSCALER_OPTION_POSTPROCESSLOCKSTATUS_SAMPLERS_USE_DATA_HALF = 0
 FFX_FSR3UPSCALER_OPTION_UPSAMPLE_USE_LANCZOS_TYPE = 2
 
 [permutations]
-FFX_HALF = [0, 1]
-FFX_WAVE64 = [0, 1]
+# Shaders currently require u16 support to use f16
+FFX_HALF = [0]
+# No way for subgroup size control currently.
+FFX_WAVE64 = [0]
 
 # Reproject can use either reference lanczos or LUT
 FFX_FSR3UPSCALER_OPTION_REPROJECT_USE_LANCZOS_TYPE = [0, 1]
