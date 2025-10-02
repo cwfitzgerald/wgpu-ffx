@@ -446,7 +446,7 @@ void StoreInternalColorAndWeight(FfxInt32x2 iPxPos, FfxFloat32x4 fColorAndWeight
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_UPSCALED_OUTPUT)
-layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_UPSCALED_OUTPUT /* app controlled format */) writeonly uniform image2D  rw_upscaled_output;
+layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_UPSCALED_OUTPUT, rgba16f) writeonly uniform image2D  rw_upscaled_output;
 
 void StoreUpscaledOutput(FfxInt32x2 iPxPos, FfxFloat32x3 fColor)
 {
@@ -639,22 +639,25 @@ FfxFloat32 LoadReconstructedPrevDepth(FfxInt32x2 iPxPos)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
-layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH, r32ui) uniform uimage2D  rw_reconstructed_previous_nearest_depth;
+layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH) buffer RwReconstructedPreviousNearestDepth { 
+    FfxUInt32 height;
+    FfxUInt32 rw_reconstructed_previous_nearest_depth[];
+};
 
 void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
 {
 	FfxUInt32 uDepth = floatBitsToUint(fDepth);
 
 	#if FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH
-		imageAtomicMax(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth);
+		atomicMax(rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x], uDepth);
 	#else
-		imageAtomicMin(rw_reconstructed_previous_nearest_depth, iPxSample, uDepth); // min for standard, max for inverted depth
+		atomicMin(rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x], uDepth); // min for standard, max for inverted depth
 	#endif
 }
 
 void SetReconstructedDepth(FfxInt32x2 iPxSample, FfxUInt32 uValue)
 {
-	imageStore(rw_reconstructed_previous_nearest_depth, iPxSample, uvec4(uValue, 0, 0, 0));
+	rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x] = uValue;
 }
 #endif
 
@@ -887,16 +890,18 @@ void StorePyramid(FFX_PARAMETER_IN FfxInt32x2 iPxPos, FFX_PARAMETER_IN FfxFloat3
 #endif
 
 #if defined FSR3UPSCALER_BIND_UAV_SPD_GLOBAL_ATOMIC
-layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_GLOBAL_ATOMIC, r32ui) coherent uniform uimage2D  rw_spd_global_atomic;
+layout (set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_GLOBAL_ATOMIC) coherent buffer RwSpdGlobalAtomic {
+    FfxUInt32 rw_spd_global_atomic;
+};
 
 void SPD_IncreaseAtomicCounter(inout FfxUInt32 spdCounter)
 {
-    spdCounter = imageAtomicAdd(rw_spd_global_atomic, ivec2(0, 0), 1);
+    spdCounter = atomicAdd(rw_spd_global_atomic, 1);
 }
 
 void SPD_ResetAtomicCounter()
 {
-    imageStore(rw_spd_global_atomic, ivec2(0, 0), uvec4(0));
+    rw_spd_global_atomic = 0;
 }
 #endif
 

@@ -24,8 +24,6 @@
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_samplerless_texture_functions : require
-// Needed for rw_upscaled_output declaration
-#extension GL_EXT_shader_image_load_formatted : require
 
 #define FSR3UPSCALER_BIND_SRV_INPUT_EXPOSURE                        0
 #define FSR3UPSCALER_BIND_SRV_DILATED_REACTIVE_MASKS                1

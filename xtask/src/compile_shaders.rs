@@ -210,6 +210,9 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
 
     println!("Found {} shader configurations", shader_configs.len());
 
+    // Clean up old .spv files before compilation
+    clean_old_spv_files(&shader_configs)?;
+
     // Generate all shader permutations
     let (all_permutations, total_glsl_files) = generate_all_shader_permutations(&shader_configs)?;
 
@@ -297,6 +300,41 @@ fn discover_shader_configs() -> Result<Vec<ShaderConfig>> {
     }
 
     Ok(shader_configs)
+}
+
+/// Clean up all existing .spv files in output directories before compilation
+fn clean_old_spv_files(shader_configs: &[ShaderConfig]) -> Result<()> {
+    println!("Cleaning up old .spv files...");
+    let mut total_removed = 0;
+
+    for shader_config in shader_configs {
+        let output_dir = &shader_config.output_directory;
+
+        if !output_dir.exists() {
+            continue;
+        }
+
+        // Find all .spv files in the output directory
+        for entry in fs::read_dir(output_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() {
+                if let Some(extension) = path.extension() {
+                    if extension == "spv" {
+                        fs::remove_file(&path)?;
+                        total_removed += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if total_removed > 0 {
+        println!("Removed {total_removed} old .spv files");
+    }
+
+    Ok(())
 }
 
 fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
