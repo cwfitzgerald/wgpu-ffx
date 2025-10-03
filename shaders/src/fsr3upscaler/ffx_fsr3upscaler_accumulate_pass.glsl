@@ -44,7 +44,7 @@
 #define FSR3UPSCALER_BIND_UAV_UPSCALED_OUTPUT                       10
 #define FSR3UPSCALER_BIND_UAV_NEW_LOCKS                             11
 
-#define FSR3UPSCALER_BIND_CB_FSR3UPSCALER                           12
+#define FSR3UPSCALER_BIND_CB_CONSTANTS                              12
 
 #include "fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_common.h"

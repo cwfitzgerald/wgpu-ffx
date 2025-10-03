@@ -29,7 +29,7 @@
 
 #define FSR3UPSCALER_BIND_UAV_SHADING_CHANGE                        1
 
-#define FSR3UPSCALER_BIND_CB_FSR3UPSCALER                           2
+#define FSR3UPSCALER_BIND_CB_CONSTANTS                              2
 
 #include "fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_common.h"

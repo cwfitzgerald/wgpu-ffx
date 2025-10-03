@@ -38,8 +38,7 @@
 #define FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_5                9
 #define FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1             10
 
-#define FSR3UPSCALER_BIND_CB_FSR3UPSCALER                     11
-#define FSR3UPSCALER_BIND_CB_SPD                              12
+#define FSR3UPSCALER_BIND_CB_CONSTANTS                        11
 
 #include "fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_common.h"

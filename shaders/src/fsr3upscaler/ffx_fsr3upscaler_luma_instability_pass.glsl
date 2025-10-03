@@ -36,7 +36,7 @@
 #define FSR3UPSCALER_BIND_UAV_LUMA_HISTORY                          7
 #define FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY                      8
 
-#define FSR3UPSCALER_BIND_CB_FSR3UPSCALER                           9
+#define FSR3UPSCALER_BIND_CB_CONSTANTS                              9
 
 #include "fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_common.h"

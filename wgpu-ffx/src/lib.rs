@@ -6,8 +6,6 @@ pub struct FsrContext {
     device: wgpu::Device,
 
     constants: Constants,
-    constant_buffer: wgpu::Buffer,
-
     resources: FsrResources,
 
     first_execution: bool,
@@ -18,7 +16,7 @@ pub struct FsrContext {
 
 impl FsrContext {
     pub fn new(info: FsrContextInfo) -> Self {
-        let constants = Constants {
+        let constants = FsrConstants {
             max_upscale_size: info.max_upscale_size,
             velocity_factor: 1.0,
             reactiveness_scale: 1.0,
@@ -63,9 +61,110 @@ bitflags::bitflags! {
     }
 }
 
+pub struct FsrDispatchInfo {
+    /// The <c><i>FfxCommandList</i></c> to record FSR3 rendering commands into.
+    pub encoder: wgpu::CommandEncoder,
+
+    /// A Texture containing the color buffer for the current frame (at render resolution).
+    pub color: wgpu::Texture,
+    /// A Texture containing 32bit depth values for the current frame (at render resolution).
+    pub depth: wgpu::Texture,
+    /// A Texture containing 2-dimensional motion vectors (at render resolution if <c><i>FFX_FSR3UPSCALER_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS</i></c> is not set).
+    pub motion_vectors: wgpu::Texture,
+    /// An optional Texture containing a 1x1 exposure value.
+    pub exposure: Option<wgpu::Texture>,
+    /// An optional Texture containing alpha value of reactive objects in the scene.
+    pub reactive_mask: Option<wgpu::Texture>,
+    /// An optional Texture containing alpha value of special objects in the scene.
+    pub transparency_and_composition: Option<wgpu::Texture>,
+    /// A Texture allocated as described in <TODO> that is used to emit dilated depth and share with following effects.
+    pub dilated_depth: wgpu::Texture,
+    /// A Texture allocated as described in <TODO> that is used to emit dilated motion vectors and share with following effects.
+    pub dilated_motion_vectors: wgpu::Texture,
+    /// A Buffer allocated as described in <TODO> that is used to emit reconstructed previous nearest depth and share with following effects.
+    pub reconstructed_previous_depth: wgpu::Buffer,
+    /// A Texture containing the output color buffer for the current frame (at presentation resolution).
+    pub output: wgpu::Texture,
+
+    /// The subpixel jitter offset applied to the camera.
+    pub jitter_offset: [f32; 2],
+    /// The scale factor to apply to motion vectors.
+    pub motion_vector_scale: [f32; 2],
+
+    /// The resolution that was used for rendering the input resources.
+    pub render_size: [u32; 2],
+    /// The resolution that the upscaler will output.
+    pub upscale_size: [u32; 2],
+
+    /// Enable an additional sharpening pass.
+    pub enable_sharpening: bool,
+    /// The sharpness value between 0 and 1, where 0 is no additional sharpness and 1 is maximum additional sharpness.
+    pub sharpness: f32,
+    /// The time elapsed since the last frame (expressed in milliseconds).
+    pub frame_time_delta: f32,
+    /// The pre exposure value (must be > 0.0f)
+    pub pre_exposure: f32,
+    /// A boolean value which when set to true, indicates the camera has moved discontinuously.
+    pub reset_history: bool,
+    /// The distance to the near plane of the camera.
+    pub camera_near: f32,
+    /// The distance to the far plane of the camera.
+    pub camera_far: f32,
+    /// The camera angle field of view in the vertical direction (expressed in radians).
+    pub camera_fov_y: f32,
+    /// The scale factor to convert view space units to meters
+    pub view_space_to_meters_factor: f32,
+
+    /// combination of FfxFsr3UpscalerDispatchFlags
+    pub flags: FsrDispatchFlags,
+}
+
+bitflags::bitflags! {
+    /// Configuration options for a single FSR dispatch.
+    pub struct FsrDispatchFlags: u32 {
+        /// A bit indicating that the interpolated output resource will contain debug views with relevant information.
+        const FFX_FSR3UPSCALER_DISPATCH_DRAW_DEBUG_VIEW = 1 << 0;
+    }
+}
+
+enum FsrPass {
+    /// A pass which prepares game inputs for later passes
+    PrepareInputs,
+    /// A pass which generates the luminance mipmap chain for the current frame.
+    LumaPyramid,
+    /// A pass which generates the shading change detection mipmap chain for the current frame.
+    ShadingChangePyramid,
+    /// A pass which estimates shading changes for the current frame
+    ShadingChange,
+    /// A pass which prepares accumulation relevant information
+    PrepareReactivity,
+    /// A pass which estimates temporal instability of the luminance changes.
+    LumaInstability,
+    /// A pass which performs upscaling.
+    Accumulate,
+    /// A pass which performs upscaling when sharpening is used.
+    AccumulateSharpen,
+    /// A pass which performs sharpening.
+    Rcas,
+    /// A pass which draws some internal resources, for debugging purposes
+    DebugView,
+    /// An optional pass to generate a reactive mask.
+    GenerateReactive,
+}
+
 #[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 struct Constants {
+    fsr: FsrConstants,
+    generate_auto_reactive: GenerateAutoReactiveConstants,
+    rcas: RcasConstants,
+    generate_reactive: GenerateReactiveConstants,
+    spd: SpdConstants,
+}
+
+#[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct FsrConstants {
     render_size: [u32; 2],
     previous_frame_render_size: [u32; 2],
 
@@ -99,6 +198,39 @@ struct Constants {
     min_disocclusion_accumulation: f32,
 }
 
+#[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct GenerateAutoReactiveConstants {
+    tc_threshold: f32, // 0.1 is a good starting value, lower will result in more TC pixels
+    tc_scale: f32,
+    reactive_scale: f32,
+    reactive_max: f32,
+}
+
+#[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct RcasConstants {
+    rcas_config: [u32; 4],
+}
+
+#[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct GenerateReactiveConstants {
+    gen_reactive_scale: f32,
+    gen_reactive_threshold: f32,
+    gen_reactive_binary_value: f32,
+    gen_reactive_flags: u32,
+}
+
+#[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+struct SpdConstants {
+    mips: u32,
+    num_work_groups: u32,
+    work_group_offset: [u32; 2],
+    render_size: [u32; 2],
+}
+
 enum AccessType {
     SRV,
     UAV,
@@ -122,6 +254,20 @@ impl FrameKind {
 
 #[derive(Debug, Clone, Copy)]
 enum FsrResourceName {
+    InputColor,
+    InputDepth,
+    InputMotionVectors,
+    InputExposure,
+    InputReactiveMask,
+    InputTransparencyAndComposition,
+
+    OutputColor,
+    OutputDilatedDepth,
+    OutputDilatedMotionVectors,
+    OutputReconstructedPreviousDepth,
+
+    Constants,
+
     Accumulation,
     Luma,
     IntermediateFp16x1,
@@ -142,6 +288,25 @@ enum FsrResourceName {
 impl FsrResourceName {
     fn format(&self) -> wgpu::TextureFormat {
         match self {
+            FsrResourceName::InputColor
+            | FsrResourceName::InputDepth
+            | FsrResourceName::InputMotionVectors
+            | FsrResourceName::InputExposure
+            | FsrResourceName::InputReactiveMask
+            | FsrResourceName::InputTransparencyAndComposition => {
+                panic!("Input resources do not have a fixed format")
+            }
+            FsrResourceName::OutputColor => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::OutputDilatedDepth => wgpu::TextureFormat::R32Float,
+            FsrResourceName::OutputDilatedMotionVectors => wgpu::TextureFormat::Rg16Float,
+            FsrResourceName::OutputReconstructedPreviousDepth => {
+                panic!("ReconstructedPreviousDepth is a buffer")
+            }
+
+            FsrResourceName::Constants => {
+                panic!("Constants is a buffer")
+            }
+
             FsrResourceName::Accumulation => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::Luma => wgpu::TextureFormat::R16Float,
             FsrResourceName::IntermediateFp16x1 => wgpu::TextureFormat::R16Float,
@@ -151,7 +316,9 @@ impl FsrResourceName {
             FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
             FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
             FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
-            FsrResourceName::SpdAtomicCount => wgpu::TextureFormat::R32Uint,
+            FsrResourceName::SpdAtomicCount => {
+                panic!("SpdAtomicCount is a buffer")
+            }
             FsrResourceName::DilatedReactiveMasks => wgpu::TextureFormat::Rgba8Unorm,
             FsrResourceName::Lanczos2Lut => wgpu::TextureFormat::R16Snorm,
             FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
@@ -161,8 +328,59 @@ impl FsrResourceName {
     }
 
     fn to_bgl_entry(&self, binding: u32, access_type: AccessType) -> wgpu::BindGroupLayoutEntry {
-        match access_type {
-            AccessType::UAV => wgpu::BindGroupLayoutEntry {
+        match (self, access_type) {
+            (
+                FsrResourceName::InputColor
+                | FsrResourceName::InputDepth
+                | FsrResourceName::InputMotionVectors
+                | FsrResourceName::InputExposure
+                | FsrResourceName::InputReactiveMask
+                | FsrResourceName::InputTransparencyAndComposition,
+                AccessType::UAV,
+            ) => {
+                panic!("Input resources cannot be UAVs")
+            }
+            (FsrResourceName::Constants, AccessType::UAV) => {
+                panic!("Constants cannot be UAVs")
+            }
+            (FsrResourceName::Constants, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            (
+                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
+                AccessType::SRV,
+            ) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            (
+                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
+                AccessType::UAV,
+            ) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+
+            (_, AccessType::UAV) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::StorageTexture {
@@ -172,7 +390,7 @@ impl FsrResourceName {
                 },
                 count: None,
             },
-            AccessType::SRV => wgpu::BindGroupLayoutEntry {
+            (_, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Texture {
@@ -187,6 +405,8 @@ impl FsrResourceName {
 }
 
 struct FsrResources {
+    constant_buffer: wgpu::Buffer,
+
     accumulation_1: wgpu::Texture,
     accumulation_2: wgpu::Texture,
     luma_1: wgpu::Texture,
@@ -200,7 +420,7 @@ struct FsrResources {
     farthest_depth_mip1: wgpu::Texture,
     luma_history1: wgpu::Texture,
     luma_history2: wgpu::Texture,
-    spd_atomic_count: wgpu::Texture,
+    spd_atomic_counter: wgpu::Buffer,
     dilated_reactive_masks: wgpu::Texture,
     lanczos2_lut: wgpu::Texture,
     default_reactivity_mask: wgpu::Texture,
@@ -234,6 +454,13 @@ impl FsrResources {
             height: max_upscale_size_array[1],
             depth_or_array_layers: 1,
         };
+
+        let constant_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FSR3 Constants"),
+            size: std::mem::size_of::<Constants>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let accumulation_1 = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("FSR3 Accumulation 1"),
@@ -379,19 +606,11 @@ impl FsrResources {
         });
 
         // This needs to be initialized to zero, but wgpu does this for us.
-        let spd_atomic_counter = device.create_texture(&wgpu::TextureDescriptor {
+        let spd_atomic_counter = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FSR3 SPD Atomic Counter"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Uint,
-            usage: wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let dilated_reactive_masks = device.create_texture(&wgpu::TextureDescriptor {
@@ -472,6 +691,7 @@ impl FsrResources {
         });
 
         Self {
+            constant_buffer,
             accumulation_1,
             accumulation_2,
             luma_1,
@@ -485,7 +705,7 @@ impl FsrResources {
             farthest_depth_mip1,
             luma_history1,
             luma_history2,
-            spd_atomic_count: spd_atomic_counter,
+            spd_atomic_counter,
             dilated_reactive_masks,
             lanczos2_lut,
             default_reactivity_mask,
@@ -496,58 +716,133 @@ impl FsrResources {
 
     fn to_view<'a>(
         &'a self,
+        dispatch: &FsrDispatchInfo,
         name: FsrResourceName,
         index: u8,
         descriptor: Option<wgpu::TextureViewDescriptor>,
-    ) -> wgpu::TextureView {
+    ) -> ViewOrBuffer {
         let descriptor = descriptor.unwrap_or_default();
 
         match name {
+            FsrResourceName::InputColor => {
+                ViewOrBuffer::View(dispatch.color.create_view(&descriptor))
+            }
+            FsrResourceName::InputDepth => {
+                ViewOrBuffer::View(dispatch.depth.create_view(&descriptor))
+            }
+            FsrResourceName::InputMotionVectors => {
+                ViewOrBuffer::View(dispatch.motion_vectors.create_view(&descriptor))
+            }
+            FsrResourceName::InputExposure => {
+                if let Some(exposure) = &dispatch.exposure {
+                    ViewOrBuffer::View(exposure.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::InputReactiveMask => {
+                if let Some(reactive_mask) = &dispatch.reactive_mask {
+                    ViewOrBuffer::View(reactive_mask.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::InputTransparencyAndComposition => {
+                if let Some(transparency_and_composition) = &dispatch.transparency_and_composition {
+                    ViewOrBuffer::View(transparency_and_composition.create_view(&descriptor))
+                } else {
+                    // Note: We use the default reactivity mask here.
+                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::OutputColor => {
+                ViewOrBuffer::View(dispatch.output.create_view(&descriptor))
+            }
+            FsrResourceName::OutputDilatedDepth => {
+                ViewOrBuffer::View(dispatch.dilated_depth.create_view(&descriptor))
+            }
+            FsrResourceName::OutputDilatedMotionVectors => {
+                ViewOrBuffer::View(dispatch.dilated_motion_vectors.create_view(&descriptor))
+            }
+            FsrResourceName::OutputReconstructedPreviousDepth => {
+                ViewOrBuffer::Buffer(dispatch.reconstructed_previous_depth.clone())
+            }
+
+            FsrResourceName::Constants => ViewOrBuffer::Buffer(self.constant_buffer.clone()),
+
             FsrResourceName::Accumulation => {
                 if index == 0 {
-                    self.accumulation_1.create_view(&descriptor)
+                    ViewOrBuffer::View(self.accumulation_1.create_view(&descriptor))
                 } else {
-                    self.accumulation_2.create_view(&descriptor)
+                    ViewOrBuffer::View(self.accumulation_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::Luma => {
                 if index == 0 {
-                    self.luma_1.create_view(&descriptor)
+                    ViewOrBuffer::View(self.luma_1.create_view(&descriptor))
                 } else {
-                    self.luma_2.create_view(&descriptor)
+                    ViewOrBuffer::View(self.luma_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::IntermediateFp16x1 => {
-                self.intermediate_fp16x1.create_view(&descriptor)
+                ViewOrBuffer::View(self.intermediate_fp16x1.create_view(&descriptor))
             }
-            FsrResourceName::ShadingChange => self.shading_change.create_view(&descriptor),
-            FsrResourceName::NewLocks => self.new_locks.create_view(&descriptor),
+            FsrResourceName::ShadingChange => {
+                ViewOrBuffer::View(self.shading_change.create_view(&descriptor))
+            }
+            FsrResourceName::NewLocks => {
+                ViewOrBuffer::View(self.new_locks.create_view(&descriptor))
+            }
             FsrResourceName::InternalUpscaled => {
                 if index == 0 {
-                    self.internal_upscaled_1.create_view(&descriptor)
+                    ViewOrBuffer::View(self.internal_upscaled_1.create_view(&descriptor))
                 } else {
-                    self.internal_upscaled_2.create_view(&descriptor)
+                    ViewOrBuffer::View(self.internal_upscaled_2.create_view(&descriptor))
                 }
             }
-            FsrResourceName::SpdMips => self.spd_mips.create_view(&descriptor),
-            FsrResourceName::FarthestDepthMip1 => self.farthest_depth_mip1.create_view(&descriptor),
+            FsrResourceName::SpdMips => ViewOrBuffer::View(self.spd_mips.create_view(&descriptor)),
+            FsrResourceName::FarthestDepthMip1 => {
+                ViewOrBuffer::View(self.farthest_depth_mip1.create_view(&descriptor))
+            }
             FsrResourceName::LumaHistory => {
                 if index == 0 {
-                    self.luma_history1.create_view(&descriptor)
+                    ViewOrBuffer::View(self.luma_history1.create_view(&descriptor))
                 } else {
-                    self.luma_history2.create_view(&descriptor)
+                    ViewOrBuffer::View(self.luma_history2.create_view(&descriptor))
                 }
             }
-            FsrResourceName::SpdAtomicCount => self.spd_atomic_count.create_view(&descriptor),
+            FsrResourceName::SpdAtomicCount => {
+                ViewOrBuffer::Buffer(self.spd_atomic_counter.clone())
+            }
             FsrResourceName::DilatedReactiveMasks => {
-                self.dilated_reactive_masks.create_view(&descriptor)
+                ViewOrBuffer::View(self.dilated_reactive_masks.create_view(&descriptor))
             }
-            FsrResourceName::Lanczos2Lut => self.lanczos2_lut.create_view(&descriptor),
+            FsrResourceName::Lanczos2Lut => {
+                ViewOrBuffer::View(self.lanczos2_lut.create_view(&descriptor))
+            }
             FsrResourceName::DefaultReactivityMask => {
-                self.default_reactivity_mask.create_view(&descriptor)
+                ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
             }
-            FsrResourceName::DefaultExposure => self.default_exposure.create_view(&descriptor),
-            FsrResourceName::FrameInfo => self.frame_info.create_view(&descriptor),
+            FsrResourceName::DefaultExposure => {
+                ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+            }
+            FsrResourceName::FrameInfo => {
+                ViewOrBuffer::View(self.frame_info.create_view(&descriptor))
+            }
+        }
+    }
+}
+
+enum ViewOrBuffer {
+    View(wgpu::TextureView),
+    Buffer(wgpu::Buffer),
+}
+
+impl<'a> From<&'a ViewOrBuffer> for wgpu::BindingResource<'a> {
+    fn from(value: &'a ViewOrBuffer) -> Self {
+        match value {
+            ViewOrBuffer::View(v) => wgpu::BindingResource::TextureView(v),
+            ViewOrBuffer::Buffer(b) => b.as_entire_binding(),
         }
     }
 }
