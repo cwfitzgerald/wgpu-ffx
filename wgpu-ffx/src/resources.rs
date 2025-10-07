@@ -1,0 +1,610 @@
+use wgpu::util::DeviceExt as _;
+
+use super::FsrDispatchInfo;
+
+pub(crate) enum AccessType {
+    SRV,
+    UAV,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FsrResourceName {
+    InputColor,
+    InputDepth,
+    InputMotionVectors,
+    InputExposure,
+    InputReactiveMask,
+    InputTransparencyAndComposition,
+
+    OutputColor,
+    OutputDilatedDepth,
+    OutputDilatedMotionVectors,
+    OutputReconstructedPreviousDepth,
+
+    Constants,
+
+    Accumulation,
+    Luma,
+    LumaInstability,
+    ShadingChange,
+    NewLocks,
+    InternalUpscaled,
+    SpdMips,
+    FarthestDepth,
+    FarthestDepthMip1,
+    LumaHistory,
+    SpdAtomicCount,
+    DilatedReactiveMasks,
+    Lanczos2Lut,
+    DefaultReactivityMask,
+    DefaultExposure,
+    FrameInfo,
+}
+
+impl FsrResourceName {
+    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+        match self {
+            FsrResourceName::InputColor
+            | FsrResourceName::InputDepth
+            | FsrResourceName::InputMotionVectors
+            | FsrResourceName::InputExposure
+            | FsrResourceName::InputReactiveMask
+            | FsrResourceName::InputTransparencyAndComposition => {
+                panic!("Input resources do not have a fixed format")
+            }
+            FsrResourceName::OutputColor => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::OutputDilatedDepth => wgpu::TextureFormat::R32Float,
+            FsrResourceName::OutputDilatedMotionVectors => wgpu::TextureFormat::Rg16Float,
+            FsrResourceName::OutputReconstructedPreviousDepth => {
+                panic!("ReconstructedPreviousDepth is a buffer")
+            }
+
+            FsrResourceName::Constants => {
+                panic!("Constants is a buffer")
+            }
+
+            FsrResourceName::Accumulation => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::Luma => wgpu::TextureFormat::R16Float,
+            FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
+                wgpu::TextureFormat::R16Float
+            }
+            FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::NewLocks => wgpu::TextureFormat::R8Uint,
+            FsrResourceName::InternalUpscaled => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
+            FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
+            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::SpdAtomicCount => {
+                panic!("SpdAtomicCount is a buffer")
+            }
+            FsrResourceName::DilatedReactiveMasks => wgpu::TextureFormat::Rgba8Unorm,
+            FsrResourceName::Lanczos2Lut => wgpu::TextureFormat::R16Snorm,
+            FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::DefaultExposure => wgpu::TextureFormat::Rg32Float,
+            FsrResourceName::FrameInfo => wgpu::TextureFormat::Rgba32Float,
+        }
+    }
+
+    pub(crate) fn to_bgl_entry(
+        &self,
+        binding: u32,
+        access_type: AccessType,
+    ) -> wgpu::BindGroupLayoutEntry {
+        match (self, access_type) {
+            (
+                FsrResourceName::InputColor
+                | FsrResourceName::InputDepth
+                | FsrResourceName::InputMotionVectors
+                | FsrResourceName::InputExposure
+                | FsrResourceName::InputReactiveMask
+                | FsrResourceName::InputTransparencyAndComposition,
+                AccessType::UAV,
+            ) => {
+                panic!("Input resources cannot be UAVs")
+            }
+            (FsrResourceName::Constants, AccessType::UAV) => {
+                panic!("Constants cannot be UAVs")
+            }
+            (FsrResourceName::Constants, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            (
+                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
+                AccessType::SRV,
+            ) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            (
+                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
+                AccessType::UAV,
+            ) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+
+            (_, AccessType::UAV) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::ReadWrite,
+                    format: self.format(),
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            (_, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+        }
+    }
+}
+
+pub(crate) struct FsrResources {
+    pub(crate) constant_buffer: wgpu::Buffer,
+
+    pub(crate) accumulation_1: wgpu::Texture,
+    pub(crate) accumulation_2: wgpu::Texture,
+    pub(crate) luma_1: wgpu::Texture,
+    pub(crate) luma_2: wgpu::Texture,
+    pub(crate) intermediate_fp16x1: wgpu::Texture,
+    pub(crate) shading_change: wgpu::Texture,
+    pub(crate) new_locks: wgpu::Texture,
+    pub(crate) internal_upscaled_1: wgpu::Texture,
+    pub(crate) internal_upscaled_2: wgpu::Texture,
+    pub(crate) spd_mips: wgpu::Texture,
+    pub(crate) farthest_depth_mip1: wgpu::Texture,
+    pub(crate) luma_history1: wgpu::Texture,
+    pub(crate) luma_history2: wgpu::Texture,
+    pub(crate) spd_atomic_counter: wgpu::Buffer,
+    pub(crate) dilated_reactive_masks: wgpu::Texture,
+    pub(crate) lanczos2_lut: wgpu::Texture,
+    pub(crate) default_reactivity_mask: wgpu::Texture,
+    pub(crate) default_exposure: wgpu::Texture,
+    pub(crate) frame_info: wgpu::Texture,
+}
+
+impl FsrResources {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        max_render_size_array: [u32; 2],
+        max_upscale_size_array: [u32; 2],
+    ) -> Self {
+        let lanczos2_lut_data = crate::lanczos2::generate_lanczos2_lut();
+
+        let max_render_size = wgpu::Extent3d {
+            width: max_render_size_array[0],
+            height: max_render_size_array[1],
+            depth_or_array_layers: 1,
+        };
+
+        let half_max_render_size = wgpu::Extent3d {
+            width: max_render_size_array[0] / 2,
+            height: max_render_size_array[1] / 2,
+            depth_or_array_layers: 1,
+        };
+
+        let max_upscale_size = wgpu::Extent3d {
+            width: max_upscale_size_array[0],
+            height: max_upscale_size_array[1],
+            depth_or_array_layers: 1,
+        };
+
+        let constant_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FSR3 Constants"),
+            size: std::mem::size_of::<crate::constants::Constants>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let accumulation_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Accumulation 1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let accumulation_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Accumulation 2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma 1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma 2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let intermediate_fp16x1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Intermediate FP16x1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let shading_change = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Shading Change"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let new_locks = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 New Locks"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let internal_upscaled_1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Internal Upscaled 1"),
+            size: max_upscale_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let internal_upscaled_2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Internal Upscaled 2"),
+            size: max_upscale_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let spd_mips = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 SPD Mips"),
+            size: half_max_render_size,
+            mip_level_count: half_max_render_size.max_mips(wgpu::TextureDimension::D2),
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg16Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let farthest_depth_mip1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Farthest Depth Mip1"),
+            size: half_max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_history1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma History1"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let luma_history2 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Luma History2"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        // This needs to be initialized to zero, but wgpu does this for us.
+        let spd_atomic_counter = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("FSR3 SPD Atomic Counter"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let dilated_reactive_masks = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Dilated Reactive Masks"),
+            size: max_render_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let lanczos2_lut = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("FSR3 Lanczos2 LUT"),
+                size: wgpu::Extent3d {
+                    width: lanczos2_lut_data.len() as u32,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R16Snorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::default(),
+            bytemuck::cast_slice(&lanczos2_lut_data),
+        );
+
+        // This needs to be initialized to zero, but wgpu does this for us.
+        let default_reactivity_mask = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Default Reactivity Mask"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let default_exposure = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Default Exposure"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let frame_info = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("FSR3 Frame Info"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        Self {
+            constant_buffer,
+            accumulation_1,
+            accumulation_2,
+            luma_1,
+            luma_2,
+            intermediate_fp16x1,
+            shading_change,
+            new_locks,
+            internal_upscaled_1,
+            internal_upscaled_2,
+            spd_mips,
+            farthest_depth_mip1,
+            luma_history1,
+            luma_history2,
+            spd_atomic_counter,
+            dilated_reactive_masks,
+            lanczos2_lut,
+            default_reactivity_mask,
+            default_exposure,
+            frame_info,
+        }
+    }
+
+    pub(crate) fn to_view<'a>(
+        &'a self,
+        dispatch: &FsrDispatchInfo,
+        name: FsrResourceName,
+        index: u8,
+        descriptor: Option<wgpu::TextureViewDescriptor>,
+    ) -> ViewOrBuffer {
+        let descriptor = descriptor.unwrap_or_default();
+
+        match name {
+            FsrResourceName::InputColor => {
+                ViewOrBuffer::View(dispatch.color.create_view(&descriptor))
+            }
+            FsrResourceName::InputDepth => {
+                ViewOrBuffer::View(dispatch.depth.create_view(&descriptor))
+            }
+            FsrResourceName::InputMotionVectors => {
+                ViewOrBuffer::View(dispatch.motion_vectors.create_view(&descriptor))
+            }
+            FsrResourceName::InputExposure => {
+                if let Some(exposure) = &dispatch.exposure {
+                    ViewOrBuffer::View(exposure.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::InputReactiveMask => {
+                if let Some(reactive_mask) = &dispatch.reactive_mask {
+                    ViewOrBuffer::View(reactive_mask.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::InputTransparencyAndComposition => {
+                if let Some(transparency_and_composition) = &dispatch.transparency_and_composition {
+                    ViewOrBuffer::View(transparency_and_composition.create_view(&descriptor))
+                } else {
+                    // Note: We use the default reactivity mask here.
+                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::OutputColor => {
+                ViewOrBuffer::View(dispatch.output.create_view(&descriptor))
+            }
+            FsrResourceName::OutputDilatedDepth => {
+                ViewOrBuffer::View(dispatch.dilated_depth.create_view(&descriptor))
+            }
+            FsrResourceName::OutputDilatedMotionVectors => {
+                ViewOrBuffer::View(dispatch.dilated_motion_vectors.create_view(&descriptor))
+            }
+            FsrResourceName::OutputReconstructedPreviousDepth => {
+                ViewOrBuffer::Buffer(dispatch.reconstructed_previous_depth.clone())
+            }
+
+            FsrResourceName::Constants => ViewOrBuffer::Buffer(self.constant_buffer.clone()),
+
+            FsrResourceName::Accumulation => {
+                if index == 0 {
+                    ViewOrBuffer::View(self.accumulation_1.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.accumulation_2.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::Luma => {
+                if index == 0 {
+                    ViewOrBuffer::View(self.luma_1.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.luma_2.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
+                ViewOrBuffer::View(self.intermediate_fp16x1.create_view(&descriptor))
+            }
+            FsrResourceName::ShadingChange => {
+                ViewOrBuffer::View(self.shading_change.create_view(&descriptor))
+            }
+            FsrResourceName::NewLocks => {
+                ViewOrBuffer::View(self.new_locks.create_view(&descriptor))
+            }
+            FsrResourceName::InternalUpscaled => {
+                if index == 0 {
+                    ViewOrBuffer::View(self.internal_upscaled_1.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.internal_upscaled_2.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::SpdMips => ViewOrBuffer::View(self.spd_mips.create_view(&descriptor)),
+            FsrResourceName::FarthestDepthMip1 => {
+                ViewOrBuffer::View(self.farthest_depth_mip1.create_view(&descriptor))
+            }
+            FsrResourceName::LumaHistory => {
+                if index == 0 {
+                    ViewOrBuffer::View(self.luma_history1.create_view(&descriptor))
+                } else {
+                    ViewOrBuffer::View(self.luma_history2.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::SpdAtomicCount => {
+                ViewOrBuffer::Buffer(self.spd_atomic_counter.clone())
+            }
+            FsrResourceName::DilatedReactiveMasks => {
+                ViewOrBuffer::View(self.dilated_reactive_masks.create_view(&descriptor))
+            }
+            FsrResourceName::Lanczos2Lut => {
+                ViewOrBuffer::View(self.lanczos2_lut.create_view(&descriptor))
+            }
+            FsrResourceName::DefaultReactivityMask => {
+                ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+            }
+            FsrResourceName::DefaultExposure => {
+                ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+            }
+            FsrResourceName::FrameInfo => {
+                ViewOrBuffer::View(self.frame_info.create_view(&descriptor))
+            }
+        }
+    }
+}
+
+pub(crate) enum ViewOrBuffer {
+    View(wgpu::TextureView),
+    Buffer(wgpu::Buffer),
+}
+
+impl<'a> From<&'a ViewOrBuffer> for wgpu::BindingResource<'a> {
+    fn from(value: &'a ViewOrBuffer) -> Self {
+        match value {
+            ViewOrBuffer::View(v) => wgpu::BindingResource::TextureView(v),
+            ViewOrBuffer::Buffer(b) => b.as_entire_binding(),
+        }
+    }
+}
