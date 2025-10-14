@@ -10,6 +10,8 @@ license = "MIT"
 [workspace.lints]
 
 [workspace.dependencies]
+wgpu-ffx-shaders-spv = { path = "wgpu-ffx-shaders-spv", version = "0.1.0" }
+
 anyhow = "1.0"
 bitflags = "2"
 bytemuck = "1.14"

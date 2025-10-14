@@ -12,6 +12,7 @@ toml = { workspace = true }
 rayon = { workspace = true }
 indicatif = { workspace = true }
 camino = { workspace = true }
+indexmap = { version = "2.11.4", features = ["serde"] }
 
 [lints]
 workspace = true

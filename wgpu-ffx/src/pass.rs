@@ -1,5 +1,7 @@
 use crate::{FsrContextFlags, resources::AccessType, resources::FsrResourceName};
 
+use wgpu_ffx_shaders_spv::fsr3upscaler::Shaders;
+
 pub(crate) enum FsrPass {
     /// A pass which prepares game inputs for later passes
     PrepareInputs,
@@ -39,6 +41,22 @@ impl FsrPass {
             FsrPass::Rcas => "FSR3 RCAS",
             FsrPass::DebugView => "FSR3 Debug View",
             FsrPass::GenerateReactive => "FSR3 Generate Reactive",
+        }
+    }
+
+    pub fn shader(&self, shaders: &Shaders) -> &'static [u8] {
+        match self {
+            FsrPass::PrepareInputs => &shaders.prepare_inputs,
+            FsrPass::LumaPyramid => &shaders.luma_pyramid,
+            FsrPass::ShadingChangePyramid => &shaders.shading_change_pyramid,
+            FsrPass::ShadingChange => &shaders.shading_change,
+            FsrPass::PrepareReactivity => &shaders.prepare_reactivity,
+            FsrPass::LumaInstability => &shaders.luma_instability,
+            FsrPass::Accumulate => &shaders.accumulate,
+            FsrPass::AccumulateSharpen => todo!(),
+            FsrPass::Rcas => &shaders.rcas,
+            FsrPass::DebugView => &shaders.debug_view,
+            FsrPass::GenerateReactive => todo!(),
         }
     }
 
@@ -259,7 +277,7 @@ impl FsrPass {
                         ..Default::default()
                     }),
                 },
-                ResourceAccess { name: FsrResourceName::Constants, access_type: AccessType::SRV, desc: None }, // CONSTANTS
+                ResourceAccess { name: FsrResourceName::Constants, access_type: AccessType::SRV, desc: None },
             ]
         };
         ret

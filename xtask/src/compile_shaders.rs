@@ -25,11 +25,12 @@
 
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
+use indexmap::{IndexMap, IndexSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
     process::Command,
@@ -65,9 +66,9 @@ struct ShaderPathConfig {
 struct ShaderPermutationConfig {
     path: ShaderPathConfig,
     /// Base preprocessor defines applied to all shader variants
-    base: HashMap<String, toml::Value>,
+    base: IndexMap<String, toml::Value>,
     /// Map of define names to their possible values for permutation generation
-    permutations: HashMap<String, Vec<toml::Value>>,
+    permutations: IndexMap<String, Vec<toml::Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -558,9 +559,7 @@ fn compile_single_permutation(permutation: &ShaderPermutation) -> Result<Compila
 }
 
 fn analyze_deduplication(results: &[CompilationResult]) -> DeduplicationInfo {
-    use std::collections::HashMap;
-
-    let mut hash_groups: HashMap<String, Vec<&CompilationResult>> = HashMap::new();
+    let mut hash_groups: IndexMap<String, Vec<&CompilationResult>> = IndexMap::new();
 
     // Group results by content hash
     for result in results {
@@ -663,21 +662,13 @@ fn generate_permutation_enums(code: &mut String, config: &ShaderPermutationConfi
         code.push_str(&format!("pub enum {enum_name} {{\n"));
 
         // Check if values are exactly [0, 1] or [1, 0] for binary enum
-        if values.len() == 2 {
-            let values_as_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
-            let has_zero_one = values_as_strings.contains(&"0".to_string())
-                && values_as_strings.contains(&"1".to_string());
+        let values_as_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
+        let has_zero_or_one = values_as_strings.contains(&"0".to_string())
+            || values_as_strings.contains(&"1".to_string());
 
-            if has_zero_one {
-                code.push_str("    Off,\n");
-                code.push_str("    On,\n");
-            } else {
-                // Not binary 0/1 values, generate indexed variants
-                for (i, _) in values.iter().enumerate() {
-                    let variant_name = format!("Value{i}");
-                    code.push_str(&format!("    {variant_name},\n"));
-                }
-            }
+        if has_zero_or_one {
+            code.push_str("    Off,\n");
+            code.push_str("    On,\n");
         } else {
             // More than 2 values, generate indexed variants
             for (i, _) in values.iter().enumerate() {
@@ -698,7 +689,7 @@ fn generate_embedded_shaders(
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Get unique shaders by hash
-    let mut unique_shaders: HashMap<String, &CompilationResult> = HashMap::new();
+    let mut unique_shaders: IndexMap<String, &CompilationResult> = IndexMap::new();
     for result in results {
         unique_shaders.insert(result.content_hash.clone(), *result);
     }
@@ -722,7 +713,7 @@ fn generate_shader_struct(
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Get unique shader names
-    let mut shader_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut shader_names: IndexSet<String> = IndexSet::new();
     for result in results {
         if let Some(name) = result.output_path.file_stem() {
             // Extract shader name part (before the hash)
@@ -753,7 +744,7 @@ fn generate_shader_struct(
 
 /// Extract unique shader names from compilation results  
 fn extract_shader_names(results: &[&CompilationResult]) -> Vec<String> {
-    let mut shader_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut shader_names: IndexSet<String> = IndexSet::new();
     for result in results {
         if let Some(name) = result.output_path.file_stem() {
             // Extract shader name part (before the hash)
@@ -788,7 +779,7 @@ fn generate_choice_function_signature(
 fn generate_choice_function_matches(
     code: &mut String,
     param_info: &[(String, String, Vec<String>)],
-    result_lookup: &HashMap<String, &CompilationResult>,
+    result_lookup: &IndexMap<String, &CompilationResult>,
     shader_names: &[String],
 ) {
     code.push_str("    match (");
@@ -861,7 +852,7 @@ fn generate_choice_function(
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Build result lookup by permutation ID
-    let result_lookup: HashMap<String, &CompilationResult> = results
+    let result_lookup: IndexMap<String, &CompilationResult> = results
         .iter()
         .map(|r| (r.permutation_id.clone(), *r))
         .collect();
