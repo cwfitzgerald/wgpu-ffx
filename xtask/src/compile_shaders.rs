@@ -71,14 +71,6 @@ struct ShaderPermutationConfig {
     permutations: IndexMap<String, Vec<toml::Value>>,
 }
 
-#[derive(Debug, Clone)]
-struct ShaderPermutation {
-    shader_file: Utf8PathBuf,
-    permutation_id: String, // For tracking which permutation this represents
-    defines: Vec<(String, String)>,
-    output_directory: Utf8PathBuf, // Where to place compiled shader
-}
-
 /// A shader configuration with its source and output locations
 #[derive(Debug)]
 struct ShaderConfig {
@@ -87,6 +79,14 @@ struct ShaderConfig {
     sdk_shader_directory: Utf8PathBuf,
     /// Directory where compiled shaders and generated code will be written
     output_directory: Utf8PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct ShaderPermutation {
+    shader_file: Utf8PathBuf,
+    permutation_id: String, // For tracking which permutation this represents
+    defines: Vec<(String, String)>,
+    output_directory: Utf8PathBuf, // Where to place compiled shader
 }
 
 #[derive(Debug, Clone)]
@@ -102,89 +102,6 @@ struct DeduplicationInfo {
     unique_hashes: usize,
     duplicates_eliminated: usize,
     space_saved_mb: f64,
-}
-
-/// Discover and generate all shader permutations from configurations
-fn generate_all_shader_permutations(
-    shader_configs: &[ShaderConfig],
-) -> Result<(Vec<ShaderPermutation>, usize)> {
-    let mut all_permutations = Vec::new();
-    let mut total_glsl_files = 0;
-
-    for shader_config in shader_configs {
-        let glsl_files = find_glsl_files(&shader_config.sdk_shader_directory)?;
-        total_glsl_files += glsl_files.len();
-
-        if glsl_files.is_empty() {
-            println!(
-                "No GLSL files found in {}",
-                shader_config.sdk_shader_directory
-            );
-            continue;
-        }
-
-        let permutations = generate_all_permutations(
-            &glsl_files,
-            &shader_config.config,
-            &shader_config.output_directory,
-        )?;
-        all_permutations.extend(permutations);
-    }
-
-    Ok((all_permutations, total_glsl_files))
-}
-
-/// Compile all shader permutations and return results with error count
-fn compile_all_permutations(
-    all_permutations: &[ShaderPermutation],
-) -> Result<(Vec<CompilationResult>, usize)> {
-    if all_permutations.is_empty() {
-        println!("No shader permutations to compile");
-        return Ok((Vec::new(), 0));
-    }
-
-    println!("Generating {} total permutations", all_permutations.len());
-
-    // Set up progress bar
-    let progress = ProgressBar::new(all_permutations.len() as u64);
-    progress.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
-            .progress_chars("##-"),
-    );
-
-    // Compile all permutations in parallel and collect results
-    let compilation_results: Vec<Result<CompilationResult>> = all_permutations
-        .par_iter()
-        .map(|permutation| {
-            let result = compile_single_permutation(permutation);
-            progress.inc(1);
-            result
-        })
-        .collect();
-
-    progress.finish_with_message("Compilation complete!");
-
-    // Process results and separate successes from errors
-    let mut successful_results = Vec::new();
-    let mut error_count = 0;
-
-    for (i, result) in compilation_results.iter().enumerate() {
-        match result {
-            Ok(compilation_result) => {
-                successful_results.push(compilation_result.clone());
-            }
-            Err(e) => {
-                eprintln!(
-                    "Failed to compile permutation {}: {}",
-                    all_permutations[i].permutation_id, e
-                );
-                error_count += 1;
-            }
-        }
-    }
-
-    Ok((successful_results, error_count))
 }
 
 pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
@@ -220,11 +137,8 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
     println!("Found {total_glsl_files} GLSL files across all configurations");
 
     // Compile all permutations
-    let (successful_results, error_count) = compile_all_permutations(&all_permutations)?;
-
-    if error_count > 0 {
-        eprintln!("{error_count} shader compilations failed");
-    }
+    let successful_results = compile_all_permutations(&all_permutations)
+        .ok_or(anyhow::anyhow!("Failed to compile shaders"))?;
 
     // Perform deduplication analysis
     let dedup_info = analyze_deduplication(&successful_results);
@@ -244,11 +158,76 @@ pub fn compile_shaders(mut args: pico_args::Arguments) -> Result<()> {
         generate_rust_embedding(shader_config, &all_permutations, &successful_results)?;
     }
 
-    if error_count > 0 {
-        return Err(anyhow::anyhow!("{error_count} shader compilations failed"));
+    Ok(())
+}
+
+/// Discover and generate all shader permutations from configurations
+fn generate_all_shader_permutations(
+    shader_configs: &[ShaderConfig],
+) -> Result<(Vec<ShaderPermutation>, usize)> {
+    let mut all_permutations = Vec::new();
+    let mut total_glsl_files = 0;
+
+    for shader_config in shader_configs {
+        let glsl_files = find_glsl_files(&shader_config.sdk_shader_directory)?;
+        total_glsl_files += glsl_files.len();
+
+        if glsl_files.is_empty() {
+            println!(
+                "No GLSL files found in {}",
+                shader_config.sdk_shader_directory
+            );
+            continue;
+        }
+
+        let permutations = generate_all_permutations(
+            &glsl_files,
+            &shader_config.config,
+            &shader_config.output_directory,
+        )?;
+        all_permutations.extend(permutations);
     }
 
-    Ok(())
+    Ok((all_permutations, total_glsl_files))
+}
+
+/// Compile all shader permutations and return results with error count
+fn compile_all_permutations(
+    all_permutations: &[ShaderPermutation],
+) -> Option<Vec<CompilationResult>> {
+    println!("Generating {} total permutations", all_permutations.len());
+
+    // Set up progress bar
+    let progress = ProgressBar::new(all_permutations.len() as u64);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+            .unwrap()
+            .progress_chars("##-"),
+    );
+
+    // Compile all permutations in parallel and collect results
+    let compilation_results: Option<Vec<CompilationResult>> = all_permutations
+        .par_iter()
+        .map(|permutation| {
+            let result = compile_single_permutation(permutation);
+            progress.inc(1);
+            match result {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    eprintln!(
+                        "Error compiling permutation {}: {}",
+                        permutation.permutation_id, e
+                    );
+                    return None;
+                }
+            }
+        })
+        .collect();
+
+    progress.finish_with_message("Compilation complete!");
+
+    compilation_results
 }
 
 fn load_shader_config(config_path: &Utf8Path) -> Result<ShaderPermutationConfig> {
@@ -455,24 +434,64 @@ fn shader_param_to_function_param(param_name: &str) -> String {
     param_name.to_lowercase().replace("ffx_", "")
 }
 
+/// Generates the cartesian product of multiple arrays.
+///
+/// The cartesian product creates all possible combinations by taking one element
+/// from each input array. For example:
+///
+/// Input: [[A, B], [1, 2]]
+/// Output: [[A, 1], [A, 2], [B, 1], [B, 2]]
+///
+/// This is used to generate all shader permutations from the possible values
+/// of each permutation parameter.
 fn generate_cartesian_product(arrays: &[&Vec<toml::Value>]) -> Vec<Vec<toml::Value>> {
+    // Base case: if no arrays provided, return a single empty combination
     if arrays.is_empty() {
         return vec![vec![]];
     }
 
+    // Start with a single empty combination that we'll build upon
+    // This represents "no choices made yet"
     let mut result = vec![vec![]];
 
+    // Process each array one at a time
+    // For each array, we take all existing combinations and extend them
+    // with each possible value from the current array
     for array in arrays {
         let mut new_result = Vec::new();
+
+        // For each existing combination we've built so far...
         for combination in &result {
+            // ...try adding each value from the current array
             for value in *array {
+                // Clone the existing combination and append the new value
                 let mut new_combination = combination.clone();
                 new_combination.push(value.clone());
                 new_result.push(new_combination);
             }
         }
+
+        // Replace the old combinations with the newly extended ones
         result = new_result;
     }
+
+    // Example walkthrough with [[A, B], [1, 2]]:
+    // Initial: result = [[]]
+    //
+    // After processing [A, B]:
+    //   For combination []:
+    //     Add A -> [A]
+    //     Add B -> [B]
+    //   result = [[A], [B]]
+    //
+    // After processing [1, 2]:
+    //   For combination [A]:
+    //     Add 1 -> [A, 1]
+    //     Add 2 -> [A, 2]
+    //   For combination [B]:
+    //     Add 1 -> [B, 1]
+    //     Add 2 -> [B, 2]
+    //   result = [[A, 1], [A, 2], [B, 1], [B, 2]]
 
     result
 }
@@ -661,14 +680,16 @@ fn generate_permutation_enums(code: &mut String, config: &ShaderPermutationConfi
         code.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
         code.push_str(&format!("pub enum {enum_name} {{\n"));
 
-        // Check if values are exactly [0, 1] or [1, 0] for binary enum
+        // Check if values are exactly [0, 1] or [0] for binary enum
         let values_as_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
-        let has_zero_or_one = values_as_strings.contains(&"0".to_string())
-            || values_as_strings.contains(&"1".to_string());
+        let is_zero_one = values_as_strings == ["0".to_string(), "1".to_string()];
+        let is_zero = values_as_strings == ["0".to_string()];
 
-        if has_zero_or_one {
+        if is_zero_one {
             code.push_str("    Off,\n");
             code.push_str("    On,\n");
+        } else if is_zero {
+            code.push_str("    Off,\n");
         } else {
             // More than 2 values, generate indexed variants
             for (i, _) in values.iter().enumerate() {
@@ -760,17 +781,14 @@ fn extract_shader_names(results: &[&CompilationResult]) -> Vec<String> {
 }
 
 /// Generate function signature for shader selection function
-fn generate_choice_function_signature(
-    code: &mut String,
-    param_info: &[(String, String, Vec<String>)],
-) {
+fn generate_choice_function_signature(code: &mut String, param_info: &[ParamInfo]) {
     code.push_str("#[inline(always)]\n");
     code.push_str("pub fn choose_shaders(");
-    for (i, (param_name_lower, enum_name, _)) in param_info.iter().enumerate() {
+    for (i, param) in param_info.iter().enumerate() {
         if i > 0 {
             code.push_str(", ");
         }
-        code.push_str(&format!("{param_name_lower}: {enum_name}"));
+        code.push_str(&format!("{}: {}", param.name_lower, param.enum_name));
     }
     code.push_str(") -> Shaders {\n");
 }
@@ -778,16 +796,16 @@ fn generate_choice_function_signature(
 /// Generate match patterns and shader assignments for choice function
 fn generate_choice_function_matches(
     code: &mut String,
-    param_info: &[(String, String, Vec<String>)],
+    param_info: &[ParamInfo],
     result_lookup: &IndexMap<String, &CompilationResult>,
     shader_names: &[String],
 ) {
     code.push_str("    match (");
-    for (i, (param_name_lower, _, _)) in param_info.iter().enumerate() {
+    for (i, param) in param_info.iter().enumerate() {
         if i > 0 {
             code.push_str(", ");
         }
-        code.push_str(param_name_lower);
+        code.push_str(&param.name_lower);
     }
     code.push_str(") {\n");
 
@@ -811,7 +829,7 @@ fn generate_choice_function_matches(
             if i > 0 {
                 code.push_str(", ");
             }
-            let (_, enum_name, _) = &param_info[i];
+            let ParamInfo { enum_name, .. } = &param_info[i];
             code.push_str(&format!("{enum_name}::{enum_variant}"));
         }
         code.push_str(") => Shaders {\n");
@@ -845,6 +863,12 @@ fn generate_choice_function_matches(
     code.push_str("}\n");
 }
 
+struct ParamInfo {
+    name_lower: String,
+    enum_name: String,
+    values: Vec<String>,
+}
+
 fn generate_choice_function(
     code: &mut String,
     shader_config: &ShaderConfig,
@@ -858,12 +882,16 @@ fn generate_choice_function(
         .collect();
 
     // Get parameter info for function signature
-    let mut param_info: Vec<(String, String, Vec<String>)> = Vec::new();
+    let mut param_info = Vec::with_capacity(shader_config.config.permutations.len());
     for (param_name, values) in &shader_config.config.permutations {
         let enum_name = shader_param_to_enum_name(param_name);
         let param_name_lower = shader_param_to_function_param(param_name);
         let value_strings: Vec<String> = values.iter().map(toml_value_to_string).collect();
-        param_info.push((param_name_lower, enum_name, value_strings));
+        param_info.push(ParamInfo {
+            name_lower: param_name_lower,
+            enum_name,
+            values: value_strings,
+        });
     }
 
     // Get all unique shader names from results
@@ -878,18 +906,21 @@ fn generate_choice_function(
     Ok(())
 }
 
-fn generate_all_enum_combinations(
-    param_info: &[(String, String, Vec<String>)],
-) -> Vec<Vec<String>> {
+fn generate_all_enum_combinations(param_info: &[ParamInfo]) -> Vec<Vec<String>> {
     // For binary enums, generate all On/Off combinations
     let mut combinations = vec![vec![]];
 
-    for (_, _, _values) in param_info {
+    for param in param_info {
         let mut new_combinations = Vec::new();
         for combination in &combinations {
-            for variant in &["Off", "On"] {
+            for variant in &param.values {
+                let variant_translation = match variant.as_str() {
+                    "1" => "On",
+                    "0" => "Off",
+                    v => v,
+                };
                 let mut new_combination = combination.clone();
-                new_combination.push(variant.to_string());
+                new_combination.push(variant_translation.to_string());
                 new_combinations.push(new_combination);
             }
         }

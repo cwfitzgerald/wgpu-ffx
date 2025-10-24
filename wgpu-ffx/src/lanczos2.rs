@@ -11,15 +11,11 @@ pub type Lanczos2Lut = [u16; LUT_SIZE];
 ///
 /// Translated from ffx/sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp:540-548
 pub fn generate_lanczos2_lut() -> Lanczos2Lut {
-    let mut lut = [0u16; LUT_SIZE];
-
-    for i in 0..LUT_SIZE {
+    std::array::from_fn(|i| {
         let x = 2.0_f32 * i as f32 / (LUT_SIZE as f32 - 1.0);
         let y = lanczos2(x);
-        lut[i] = (y * 32767.0f32).round() as u16;
-    }
-
-    lut
+        (y * 32767.0f32).round() as u16
+    })
 }
 
 /// Lanczos2 filter function

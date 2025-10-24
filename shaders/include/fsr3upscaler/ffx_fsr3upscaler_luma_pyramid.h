@@ -1,7 +1,7 @@
 // This file is part of the FidelityFX SDK.
 //
 // Copyright (C) 2024 Advanced Micro Devices, Inc.
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files(the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
@@ -43,24 +43,24 @@ FFX_GROUPSHARED FfxFloat32 spdIntermediateG[16][16];
 FFX_GROUPSHARED FfxFloat32 spdIntermediateB[16][16];
 FFX_GROUPSHARED FfxFloat32 spdIntermediateA[16][16];
 
-FFX_STATIC const FfxInt32 LOG_LUMA        = 0;
-FFX_STATIC const FfxInt32 LUMA            = 1;
+FFX_STATIC const FfxInt32 LOG_LUMA = 0;
+FFX_STATIC const FfxInt32 LUMA = 1;
 FFX_STATIC const FfxInt32 DEPTH_IN_METERS = 2;
 
 FfxFloat32x4 SpdLoadSourceImage(FfxFloat32x2 iPxPos, FfxUInt32 slice)
 {
-    //We assume linear data. if non-linear input (sRGB, ...),
-    //then we should convert to linear first and back to sRGB on output.
+    // We assume linear data. if non-linear input (sRGB, ...),
+    // then we should convert to linear first and back to sRGB on output.
     const FfxInt32x2 iPxSamplePos = ClampLoad(FfxInt32x2(iPxPos), FfxInt32x2(0, 0), FfxInt32x2(RenderSize()));
 
-    const FfxFloat32 fLuma                  = LoadCurrentLuma(iPxSamplePos);
-    const FfxFloat32 fLogLuma               = ffxMax(FSR3UPSCALER_EPSILON, log(fLuma));
+    const FfxFloat32 fLuma = LoadCurrentLuma(iPxSamplePos);
+    const FfxFloat32 fLogLuma = ffxMax(FSR3UPSCALER_EPSILON, log(fLuma));
     const FfxFloat32 fFarthestDepthInMeters = LoadFarthestDepth(iPxSamplePos);
 
-    FfxFloat32x4 fOutput        = FfxFloat32x4(0.0f, 0.0f, 0.0f, 0.0f);
-    fOutput[LOG_LUMA]           = fLogLuma;
-    fOutput[LUMA]               = fLuma;
-    fOutput[DEPTH_IN_METERS]    = fFarthestDepthInMeters;
+    FfxFloat32x4 fOutput = FfxFloat32x4(0.0f, 0.0f, 0.0f, 0.0f);
+    fOutput[LOG_LUMA] = fLogLuma;
+    fOutput[LUMA] = fLuma;
+    fOutput[DEPTH_IN_METERS] = fFarthestDepthInMeters;
 
     return fOutput;
 }
@@ -81,18 +81,20 @@ void SpdStore(FfxInt32x2 pix, FfxFloat32x4 outValue, FfxUInt32 index, FfxUInt32 
     {
         StorePyramid(pix, outValue.xy, index);
     }
-    else if (index == 0) {
+    else if (index == 0)
+    {
         StoreFarthestDepthMip1(pix, outValue[DEPTH_IN_METERS]);
     }
 
-    if (index == MipCount() - 1) { //accumulate on 1x1 level
+    if (index == MipCount() - 1)
+    { // accumulate on 1x1 level
 
         if (all(FFX_EQUAL(pix, FfxInt32x2(0, 0))))
         {
-            FfxFloat32x4 frameInfo          = LoadFrameInfo();
-            const FfxFloat32 fSceneAvgLuma  = outValue[LUMA];
-            const FfxFloat32 fPrevLogLuma   = frameInfo[FRAME_INFO_LOG_LUMA];
-            FfxFloat32 fLogLuma             = outValue[LOG_LUMA];
+            FfxFloat32x4 frameInfo = LoadFrameInfo();
+            const FfxFloat32 fSceneAvgLuma = outValue[LUMA];
+            const FfxFloat32 fPrevLogLuma = frameInfo[FRAME_INFO_LOG_LUMA];
+            FfxFloat32 fLogLuma = outValue[LOG_LUMA];
 
             if (fPrevLogLuma < resetAutoExposureAverageSmoothing) // Compare Lavg, so small or negative values
             {
@@ -100,9 +102,9 @@ void SpdStore(FfxInt32x2 pix, FfxFloat32x4 outValue, FfxUInt32 index, FfxUInt32 
                 fLogLuma = ffxMax(0.0f, fLogLuma);
             }
 
-            frameInfo[FRAME_INFO_EXPOSURE]             = ComputeAutoExposureFromLavg(fLogLuma);
-            frameInfo[FRAME_INFO_LOG_LUMA]             = fLogLuma;
-            frameInfo[FRAME_INFO_SCENE_AVERAGE_LUMA]   = fSceneAvgLuma;
+            frameInfo[FRAME_INFO_EXPOSURE] = ComputeAutoExposureFromLavg(fLogLuma);
+            frameInfo[FRAME_INFO_LOG_LUMA] = fLogLuma;
+            frameInfo[FRAME_INFO_SCENE_AVERAGE_LUMA] = fSceneAvgLuma;
 
             StoreFrameInfo(frameInfo);
         }

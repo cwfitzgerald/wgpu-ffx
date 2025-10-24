@@ -2,7 +2,64 @@ use crate::{FsrContextFlags, resources::AccessType, resources::FsrResourceName};
 
 use wgpu_ffx_shaders_spv::fsr3upscaler::Shaders;
 
-pub(crate) enum FsrPass {
+pub(crate) struct FsrPass {
+    kind: FsrPassKind,
+    pipeline: wgpu::ComputePipeline,
+    bgl: wgpu::BindGroupLayout,
+}
+
+impl FsrPass {
+    pub fn new(
+        device: &wgpu::Device,
+        kind: FsrPassKind,
+        flags: FsrContextFlags,
+        shaders: &Shaders,
+    ) -> Self {
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(kind.label()),
+            source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(bytemuck::cast_slice(
+                kind.shader(shaders),
+            ))),
+        });
+
+        let resources = kind.resources(flags);
+
+        let bgl_entries: Vec<_> = resources
+            .into_iter()
+            .enumerate()
+            .map(|(i, access)| access.name.to_bgl_entry(i as u32, access.access_type))
+            .collect();
+
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some(&format!("{} Bind Group Layout", kind.label())),
+            entries: &bgl_entries,
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(&format!("{} Pipeline Layout", kind.label())),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(kind.label()),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        Self {
+            kind,
+            pipeline: compute_pipeline,
+            bgl,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FsrPassKind {
     /// A pass which prepares game inputs for later passes
     PrepareInputs,
     /// A pass which generates the luminance mipmap chain for the current frame.
@@ -17,8 +74,6 @@ pub(crate) enum FsrPass {
     LumaInstability,
     /// A pass which performs upscaling.
     Accumulate,
-    /// A pass which performs upscaling when sharpening is used.
-    AccumulateSharpen,
     /// A pass which performs sharpening.
     Rcas,
     /// A pass which draws some internal resources, for debugging purposes
@@ -27,36 +82,34 @@ pub(crate) enum FsrPass {
     GenerateReactive,
 }
 
-impl FsrPass {
+impl FsrPassKind {
     pub fn label(&self) -> &'static str {
         match self {
-            FsrPass::PrepareInputs => "FSR3 Prepare Inputs",
-            FsrPass::LumaPyramid => "FSR3 Luma Pyramid",
-            FsrPass::ShadingChangePyramid => "FSR3 Shading Change Pyramid",
-            FsrPass::ShadingChange => "FSR3 Shading Change",
-            FsrPass::PrepareReactivity => "FSR3 Prepare Reactivity",
-            FsrPass::LumaInstability => "FSR3 Luma Instability",
-            FsrPass::Accumulate => "FSR3 Accumulate",
-            FsrPass::AccumulateSharpen => "FSR3 Accumulate Sharpen",
-            FsrPass::Rcas => "FSR3 RCAS",
-            FsrPass::DebugView => "FSR3 Debug View",
-            FsrPass::GenerateReactive => "FSR3 Generate Reactive",
+            FsrPassKind::PrepareInputs => "FSR3 Prepare Inputs",
+            FsrPassKind::LumaPyramid => "FSR3 Luma Pyramid",
+            FsrPassKind::ShadingChangePyramid => "FSR3 Shading Change Pyramid",
+            FsrPassKind::ShadingChange => "FSR3 Shading Change",
+            FsrPassKind::PrepareReactivity => "FSR3 Prepare Reactivity",
+            FsrPassKind::LumaInstability => "FSR3 Luma Instability",
+            FsrPassKind::Accumulate => "FSR3 Accumulate",
+            FsrPassKind::Rcas => "FSR3 RCAS",
+            FsrPassKind::DebugView => "FSR3 Debug View",
+            FsrPassKind::GenerateReactive => "FSR3 Generate Reactive",
         }
     }
 
     pub fn shader(&self, shaders: &Shaders) -> &'static [u8] {
         match self {
-            FsrPass::PrepareInputs => &shaders.prepare_inputs,
-            FsrPass::LumaPyramid => &shaders.luma_pyramid,
-            FsrPass::ShadingChangePyramid => &shaders.shading_change_pyramid,
-            FsrPass::ShadingChange => &shaders.shading_change,
-            FsrPass::PrepareReactivity => &shaders.prepare_reactivity,
-            FsrPass::LumaInstability => &shaders.luma_instability,
-            FsrPass::Accumulate => &shaders.accumulate,
-            FsrPass::AccumulateSharpen => todo!(),
-            FsrPass::Rcas => &shaders.rcas,
-            FsrPass::DebugView => &shaders.debug_view,
-            FsrPass::GenerateReactive => todo!(),
+            FsrPassKind::PrepareInputs => shaders.prepare_inputs,
+            FsrPassKind::LumaPyramid => shaders.luma_pyramid,
+            FsrPassKind::ShadingChangePyramid => shaders.shading_change_pyramid,
+            FsrPassKind::ShadingChange => shaders.shading_change,
+            FsrPassKind::PrepareReactivity => shaders.prepare_reactivity,
+            FsrPassKind::LumaInstability => shaders.luma_instability,
+            FsrPassKind::Accumulate => shaders.accumulate,
+            FsrPassKind::Rcas => shaders.rcas,
+            FsrPassKind::DebugView => shaders.debug_view,
+            FsrPassKind::GenerateReactive => todo!(),
         }
     }
 
@@ -71,52 +124,52 @@ impl FsrPass {
         };
 
         #[rustfmt::skip]
-        let ret = match self {
-            FsrPass::Accumulate | FsrPass::AccumulateSharpen => vec![
-                ResourceAccess { name: InputExposure, access_type: SRV, desc: None },
-                ResourceAccess { name: DilatedReactiveMasks, access_type: SRV, desc: None },
-                ResourceAccess { name: motion_vectors, access_type: SRV, desc: None },
-                ResourceAccess { name: InternalUpscaled, access_type: SRV, desc: None },
-                ResourceAccess { name: Lanczos2Lut, access_type: SRV, desc: None },
-                ResourceAccess { name: FarthestDepthMip1, access_type: SRV, desc: None },
-                ResourceAccess { name: Luma, access_type: SRV, desc: None },
-                ResourceAccess { name: LumaInstability, access_type: SRV, desc: None },
-                ResourceAccess { name: InputColor, access_type: SRV, desc: None },
-                ResourceAccess { name: InternalUpscaled, access_type: UAV, desc: None },
-                ResourceAccess { name: OutputColor, access_type: UAV, desc: None },
-                ResourceAccess { name: NewLocks, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+        let mut ret = match self {
+            FsrPassKind::Accumulate => vec![
+                ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
+                ResourceAccess { name: DilatedReactiveMasks, access_type: Srv, desc: None },
+                ResourceAccess { name: motion_vectors, access_type: Srv, desc: None },
+                ResourceAccess { name: InternalUpscaled, access_type: Srv, desc: None },
+                ResourceAccess { name: Lanczos2Lut, access_type: Srv, desc: None },
+                ResourceAccess { name: FarthestDepthMip1, access_type: Srv, desc: None },
+                ResourceAccess { name: Luma, access_type: Srv, desc: None },
+                ResourceAccess { name: LumaInstability, access_type: Srv, desc: None },
+                ResourceAccess { name: InputColor, access_type: Srv, desc: None },
+                ResourceAccess { name: InternalUpscaled, access_type: Uav, desc: None },
+                ResourceAccess { name: OutputColor, access_type: Uav, desc: None },
+                ResourceAccess { name: NewLocks, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::GenerateReactive => todo!("Need to map FfxFsr3UpscalerGenerateReactiveDescription"),
-            FsrPass::DebugView => vec![
-                ResourceAccess { name: DilatedReactiveMasks, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedMotionVectors, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedDepth, access_type: SRV, desc: None },
-                ResourceAccess { name: InternalUpscaled, access_type: SRV, desc: None },
-                ResourceAccess { name: InputExposure, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputColor, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+            FsrPassKind::GenerateReactive => todo!("Need to map FfxFsr3UpscalerGenerateReactiveDescription"),
+            FsrPassKind::DebugView => vec![
+                ResourceAccess { name: DilatedReactiveMasks, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedMotionVectors, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedDepth, access_type: Srv, desc: None },
+                ResourceAccess { name: InternalUpscaled, access_type: Srv, desc: None },
+                ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputColor, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::LumaInstability => vec![
-                ResourceAccess { name: InputExposure, access_type: SRV, desc: None },
-                ResourceAccess { name: DilatedReactiveMasks, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedMotionVectors, access_type: SRV, desc: None },
-                ResourceAccess { name: FrameInfo, access_type: SRV, desc: None },
-                ResourceAccess { name: LumaHistory, access_type: SRV, desc: None },
-                ResourceAccess { name: FarthestDepthMip1, access_type: SRV, desc: None },
-                ResourceAccess { name: Luma, access_type: SRV, desc: None },
-                ResourceAccess { name: LumaHistory, access_type: UAV, desc: None },
-                ResourceAccess { name: LumaInstability, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+            FsrPassKind::LumaInstability => vec![
+                ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
+                ResourceAccess { name: DilatedReactiveMasks, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedMotionVectors, access_type: Srv, desc: None },
+                ResourceAccess { name: FrameInfo, access_type: Srv, desc: None },
+                ResourceAccess { name: LumaHistory, access_type: Srv, desc: None },
+                ResourceAccess { name: FarthestDepthMip1, access_type: Srv, desc: None },
+                ResourceAccess { name: Luma, access_type: Srv, desc: None },
+                ResourceAccess { name: LumaHistory, access_type: Uav, desc: None },
+                ResourceAccess { name: LumaInstability, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::LumaPyramid => vec![
-                ResourceAccess { name: Luma, access_type: SRV, desc: None },
-                ResourceAccess { name: FarthestDepth, access_type: SRV, desc: None },
-                ResourceAccess { name: SpdAtomicCount, access_type: UAV, desc: None },
-                ResourceAccess { name: FrameInfo, access_type: UAV, desc: None },
+            FsrPassKind::LumaPyramid => vec![
+                ResourceAccess { name: Luma, access_type: Srv, desc: None },
+                ResourceAccess { name: FarthestDepth, access_type: Srv, desc: None },
+                ResourceAccess { name: SpdAtomicCount, access_type: Uav, desc: None },
+                ResourceAccess { name: FrameInfo, access_type: Uav, desc: None },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 0,
@@ -126,7 +179,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 1,
@@ -136,7 +189,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 2,
@@ -146,7 +199,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 3,
@@ -156,7 +209,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 4,
@@ -166,7 +219,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: SpdMips,
-                    access_type: UAV,
+                    access_type: Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 5,
@@ -174,58 +227,58 @@ impl FsrPass {
                         ..Default::default()
                     }),
                 },
-                ResourceAccess { name: FarthestDepthMip1, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+                ResourceAccess { name: FarthestDepthMip1, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::PrepareInputs => vec![
-                ResourceAccess { name: InputMotionVectors, access_type: SRV, desc: None },
-                ResourceAccess { name: InputDepth, access_type: SRV, desc: None },
-                ResourceAccess { name: InputColor, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedMotionVectors, access_type: UAV, desc: None },
-                ResourceAccess { name: OutputDilatedDepth, access_type: UAV, desc: None },
-                ResourceAccess { name: OutputReconstructedPreviousDepth, access_type: UAV, desc: None },
-                ResourceAccess { name: FarthestDepth, access_type: UAV, desc: None },
-                ResourceAccess { name: Luma, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+            FsrPassKind::PrepareInputs => vec![
+                ResourceAccess { name: InputMotionVectors, access_type: Srv, desc: None },
+                ResourceAccess { name: InputDepth, access_type: Srv, desc: None },
+                ResourceAccess { name: InputColor, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedMotionVectors, access_type: Uav, desc: None },
+                ResourceAccess { name: OutputDilatedDepth, access_type: Uav, desc: None },
+                ResourceAccess { name: OutputReconstructedPreviousDepth, access_type: Uav, desc: None },
+                ResourceAccess { name: FarthestDepth, access_type: Uav, desc: None },
+                ResourceAccess { name: Luma, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::PrepareReactivity => vec![
-                ResourceAccess { name: OutputReconstructedPreviousDepth, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedMotionVectors, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputDilatedDepth, access_type: SRV, desc: None },
-                ResourceAccess { name: InputReactiveMask, access_type: SRV, desc: None },
-                ResourceAccess { name: InputTransparencyAndComposition, access_type: SRV, desc: None },
-                ResourceAccess { name: Accumulation, access_type: SRV, desc: None },
-                ResourceAccess { name: ShadingChange, access_type: SRV, desc: None },
-                ResourceAccess { name: Luma, access_type: SRV, desc: None },
-                ResourceAccess { name: InputExposure, access_type: SRV, desc: None },
+            FsrPassKind::PrepareReactivity => vec![
+                ResourceAccess { name: OutputReconstructedPreviousDepth, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedMotionVectors, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputDilatedDepth, access_type: Srv, desc: None },
+                ResourceAccess { name: InputReactiveMask, access_type: Srv, desc: None },
+                ResourceAccess { name: InputTransparencyAndComposition, access_type: Srv, desc: None },
+                ResourceAccess { name: Accumulation, access_type: Srv, desc: None },
+                ResourceAccess { name: ShadingChange, access_type: Srv, desc: None },
+                ResourceAccess { name: Luma, access_type: Srv, desc: None },
+                ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
 
-                ResourceAccess { name: DilatedReactiveMasks, access_type: UAV, desc: None },
-                ResourceAccess { name: NewLocks, access_type: UAV, desc: None },
-                ResourceAccess { name: Accumulation, access_type: UAV, desc: None },
+                ResourceAccess { name: DilatedReactiveMasks, access_type: Uav, desc: None },
+                ResourceAccess { name: NewLocks, access_type: Uav, desc: None },
+                ResourceAccess { name: Accumulation, access_type: Uav, desc: None },
 
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::Rcas => vec![
-                ResourceAccess { name: InputExposure, access_type: SRV, desc: None },
-                ResourceAccess { name: InternalUpscaled, access_type: SRV, desc: None },
-                ResourceAccess { name: OutputColor, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+            FsrPassKind::Rcas => vec![
+                ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
+                ResourceAccess { name: InternalUpscaled, access_type: Srv, desc: None },
+                ResourceAccess { name: OutputColor, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::ShadingChange => vec![
-                ResourceAccess { name: SpdMips, access_type: SRV, desc: None },
-                ResourceAccess { name: ShadingChange, access_type: UAV, desc: None },
-                ResourceAccess { name: Constants, access_type: SRV, desc: None },
+            FsrPassKind::ShadingChange => vec![
+                ResourceAccess { name: SpdMips, access_type: Srv, desc: None },
+                ResourceAccess { name: ShadingChange, access_type: Uav, desc: None },
+                ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
-            FsrPass::ShadingChangePyramid => vec![
+            FsrPassKind::ShadingChangePyramid => vec![
                 // SRV bindings
-                ResourceAccess { name: FsrResourceName::Luma, access_type: AccessType::SRV, desc: None },
-                ResourceAccess { name: FsrResourceName::LumaHistory, access_type: AccessType::SRV, desc: None },
-                ResourceAccess { name: FsrResourceName::OutputDilatedMotionVectors, access_type: AccessType::SRV, desc: None },
-                ResourceAccess { name: FsrResourceName::InputExposure, access_type: AccessType::SRV, desc: None },
-                ResourceAccess { name: FsrResourceName::SpdAtomicCount, access_type: AccessType::UAV, desc: None },
+                ResourceAccess { name: FsrResourceName::Luma, access_type: AccessType::Srv, desc: None },
+                ResourceAccess { name: FsrResourceName::LumaHistory, access_type: AccessType::Srv, desc: None },
+                ResourceAccess { name: FsrResourceName::OutputDilatedMotionVectors, access_type: AccessType::Srv, desc: None },
+                ResourceAccess { name: FsrResourceName::InputExposure, access_type: AccessType::Srv, desc: None },
+                ResourceAccess { name: FsrResourceName::SpdAtomicCount, access_type: AccessType::Uav, desc: None },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 0,
                         mip_level_count: Some(1),
@@ -234,7 +287,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 1,
                         mip_level_count: Some(1),
@@ -243,7 +296,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 2,
                         mip_level_count: Some(1),
@@ -252,7 +305,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 3,
                         mip_level_count: Some(1),
@@ -261,7 +314,7 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 4,
                         mip_level_count: Some(1),
@@ -270,16 +323,30 @@ impl FsrPass {
                 },
                 ResourceAccess {
                     name: FsrResourceName::SpdMips,
-                    access_type: AccessType::UAV,
+                    access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 5,
                         mip_level_count: None,
                         ..Default::default()
                     }),
                 },
-                ResourceAccess { name: FsrResourceName::Constants, access_type: AccessType::SRV, desc: None },
+                ResourceAccess { name: FsrResourceName::Constants, access_type: AccessType::Srv, desc: None },
             ]
         };
+
+        // All passes bind the samplers at the end
+
+        ret.push(ResourceAccess {
+            name: FsrResourceName::SamplerPointClamp,
+            access_type: AccessType::Srv,
+            desc: None,
+        });
+        ret.push(ResourceAccess {
+            name: FsrResourceName::SamplerLinearClamp,
+            access_type: AccessType::Srv,
+            desc: None,
+        });
+
         ret
     }
 }

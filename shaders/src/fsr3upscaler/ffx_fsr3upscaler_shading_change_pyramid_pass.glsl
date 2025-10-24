@@ -42,6 +42,9 @@
 
 #define FSR3UPSCALER_BIND_CB_CONSTANTS                              11
 
+#define FSR3UPSCALER_BIND_SAMPLER_POINT_CLAMP                       12
+#define FSR3UPSCALER_BIND_SAMPLER_LINEAR_CLAMP                      13
+
 #include "fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_common.h"
 #include "fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid.h"

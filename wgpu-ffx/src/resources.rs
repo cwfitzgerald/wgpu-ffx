@@ -1,10 +1,12 @@
 use wgpu::util::DeviceExt as _;
 
+use crate::FrameKind;
+
 use super::FsrDispatchInfo;
 
 pub(crate) enum AccessType {
-    SRV,
-    UAV,
+    Srv,
+    Uav,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +27,7 @@ pub(crate) enum FsrResourceName {
 
     Accumulation,
     Luma,
+    PreviousLuma,
     LumaInstability,
     ShadingChange,
     NewLocks,
@@ -39,6 +42,9 @@ pub(crate) enum FsrResourceName {
     DefaultReactivityMask,
     DefaultExposure,
     FrameInfo,
+
+    SamplerPointClamp,
+    SamplerLinearClamp,
 }
 
 impl FsrResourceName {
@@ -64,16 +70,16 @@ impl FsrResourceName {
             }
 
             FsrResourceName::Accumulation => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::Luma => wgpu::TextureFormat::R16Float,
+            FsrResourceName::Luma | FsrResourceName::PreviousLuma => wgpu::TextureFormat::R16Float,
             FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
                 wgpu::TextureFormat::R16Float
             }
             FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::NewLocks => wgpu::TextureFormat::R8Uint,
+            FsrResourceName::NewLocks => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::InternalUpscaled => wgpu::TextureFormat::Rgba16Float,
             FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
             FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
-            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba8Unorm,
             FsrResourceName::SpdAtomicCount => {
                 panic!("SpdAtomicCount is a buffer")
             }
@@ -82,11 +88,15 @@ impl FsrResourceName {
             FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::DefaultExposure => wgpu::TextureFormat::Rg32Float,
             FsrResourceName::FrameInfo => wgpu::TextureFormat::Rgba32Float,
+
+            FsrResourceName::SamplerPointClamp | FsrResourceName::SamplerLinearClamp => {
+                panic!("Samplers are Samplers")
+            }
         }
     }
 
     pub(crate) fn to_bgl_entry(
-        &self,
+        self,
         binding: u32,
         access_type: AccessType,
     ) -> wgpu::BindGroupLayoutEntry {
@@ -98,14 +108,14 @@ impl FsrResourceName {
                 | FsrResourceName::InputExposure
                 | FsrResourceName::InputReactiveMask
                 | FsrResourceName::InputTransparencyAndComposition,
-                AccessType::UAV,
+                AccessType::Uav,
             ) => {
                 panic!("Input resources cannot be UAVs")
             }
-            (FsrResourceName::Constants, AccessType::UAV) => {
+            (FsrResourceName::Constants, AccessType::Uav) => {
                 panic!("Constants cannot be UAVs")
             }
-            (FsrResourceName::Constants, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
+            (FsrResourceName::Constants, AccessType::Srv) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
@@ -117,20 +127,7 @@ impl FsrResourceName {
             },
             (
                 FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
-                AccessType::SRV,
-            ) => wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            (
-                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
-                AccessType::UAV,
+                AccessType::Srv,
             ) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
@@ -141,18 +138,55 @@ impl FsrResourceName {
                 },
                 count: None,
             },
-
-            (_, AccessType::UAV) => wgpu::BindGroupLayoutEntry {
+            (
+                FsrResourceName::OutputReconstructedPreviousDepth | FsrResourceName::SpdAtomicCount,
+                AccessType::Uav,
+            ) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::ReadWrite,
-                    format: self.format(),
-                    view_dimension: wgpu::TextureViewDimension::D2,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
                 count: None,
             },
-            (_, AccessType::SRV) => wgpu::BindGroupLayoutEntry {
+            (FsrResourceName::SamplerPointClamp, _) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                count: None,
+            },
+            (FsrResourceName::SamplerLinearClamp, _) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+
+            (_, AccessType::Uav) => {
+                let access = match self {
+                    FsrResourceName::InternalUpscaled
+                    | FsrResourceName::OutputColor
+                    | FsrResourceName::OutputDilatedDepth
+                    | FsrResourceName::OutputDilatedMotionVectors
+                    | FsrResourceName::DilatedReactiveMasks => {
+                        wgpu::StorageTextureAccess::WriteOnly
+                    }
+                    _ => wgpu::StorageTextureAccess::ReadWrite,
+                };
+                wgpu::BindGroupLayoutEntry {
+                    binding,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: access,
+                        format: self.format(),
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                }
+            }
+            (_, AccessType::Srv) => wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Texture {
@@ -188,6 +222,9 @@ pub(crate) struct FsrResources {
     pub(crate) default_reactivity_mask: wgpu::Texture,
     pub(crate) default_exposure: wgpu::Texture,
     pub(crate) frame_info: wgpu::Texture,
+
+    pub(crate) sampler_point_clamp: wgpu::Sampler,
+    pub(crate) sampler_linear_clamp: wgpu::Sampler,
 }
 
 impl FsrResources {
@@ -452,6 +489,28 @@ impl FsrResources {
             view_formats: &[],
         });
 
+        let sampler_linear_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("FSR3 Sampler Linear Clamp"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let sampler_point_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("FSR3 Sampler Point Clamp"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         Self {
             constant_buffer,
             accumulation_1,
@@ -473,138 +532,165 @@ impl FsrResources {
             default_reactivity_mask,
             default_exposure,
             frame_info,
+            sampler_point_clamp,
+            sampler_linear_clamp,
         }
     }
 
-    pub(crate) fn to_view<'a>(
-        &'a self,
+    pub(crate) fn to_view(
+        &self,
         dispatch: &FsrDispatchInfo,
         name: FsrResourceName,
-        index: u8,
+        index: FrameKind,
         descriptor: Option<wgpu::TextureViewDescriptor>,
-    ) -> ViewOrBuffer {
+    ) -> OwnedBindingResource {
         let descriptor = descriptor.unwrap_or_default();
 
         match name {
             FsrResourceName::InputColor => {
-                ViewOrBuffer::View(dispatch.color.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.color.create_view(&descriptor))
             }
             FsrResourceName::InputDepth => {
-                ViewOrBuffer::View(dispatch.depth.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.depth.create_view(&descriptor))
             }
             FsrResourceName::InputMotionVectors => {
-                ViewOrBuffer::View(dispatch.motion_vectors.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.motion_vectors.create_view(&descriptor))
             }
             FsrResourceName::InputExposure => {
                 if let Some(exposure) = &dispatch.exposure {
-                    ViewOrBuffer::View(exposure.create_view(&descriptor))
+                    OwnedBindingResource::View(exposure.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+                    OwnedBindingResource::View(self.default_exposure.create_view(&descriptor))
                 }
             }
             FsrResourceName::InputReactiveMask => {
                 if let Some(reactive_mask) = &dispatch.reactive_mask {
-                    ViewOrBuffer::View(reactive_mask.create_view(&descriptor))
+                    OwnedBindingResource::View(reactive_mask.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                    OwnedBindingResource::View(
+                        self.default_reactivity_mask.create_view(&descriptor),
+                    )
                 }
             }
             FsrResourceName::InputTransparencyAndComposition => {
                 if let Some(transparency_and_composition) = &dispatch.transparency_and_composition {
-                    ViewOrBuffer::View(transparency_and_composition.create_view(&descriptor))
+                    OwnedBindingResource::View(
+                        transparency_and_composition.create_view(&descriptor),
+                    )
                 } else {
                     // Note: We use the default reactivity mask here.
-                    ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                    OwnedBindingResource::View(
+                        self.default_reactivity_mask.create_view(&descriptor),
+                    )
                 }
             }
             FsrResourceName::OutputColor => {
-                ViewOrBuffer::View(dispatch.output.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.output.create_view(&descriptor))
             }
             FsrResourceName::OutputDilatedDepth => {
-                ViewOrBuffer::View(dispatch.dilated_depth.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.dilated_depth.create_view(&descriptor))
             }
             FsrResourceName::OutputDilatedMotionVectors => {
-                ViewOrBuffer::View(dispatch.dilated_motion_vectors.create_view(&descriptor))
+                OwnedBindingResource::View(dispatch.dilated_motion_vectors.create_view(&descriptor))
             }
             FsrResourceName::OutputReconstructedPreviousDepth => {
-                ViewOrBuffer::Buffer(dispatch.reconstructed_previous_depth.clone())
+                OwnedBindingResource::Buffer(dispatch.reconstructed_previous_depth.clone())
             }
 
-            FsrResourceName::Constants => ViewOrBuffer::Buffer(self.constant_buffer.clone()),
+            FsrResourceName::Constants => {
+                OwnedBindingResource::Buffer(self.constant_buffer.clone())
+            }
 
             FsrResourceName::Accumulation => {
-                if index == 0 {
-                    ViewOrBuffer::View(self.accumulation_1.create_view(&descriptor))
+                if index == FrameKind::Odd {
+                    OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.accumulation_2.create_view(&descriptor))
+                    OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::Luma => {
-                if index == 0 {
-                    ViewOrBuffer::View(self.luma_1.create_view(&descriptor))
+                if index == FrameKind::Odd {
+                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.luma_2.create_view(&descriptor))
+                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
+                }
+            }
+            FsrResourceName::PreviousLuma => {
+                if index == FrameKind::Odd {
+                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
+                } else {
+                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
                 }
             }
             FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
-                ViewOrBuffer::View(self.intermediate_fp16x1.create_view(&descriptor))
+                OwnedBindingResource::View(self.intermediate_fp16x1.create_view(&descriptor))
             }
             FsrResourceName::ShadingChange => {
-                ViewOrBuffer::View(self.shading_change.create_view(&descriptor))
+                OwnedBindingResource::View(self.shading_change.create_view(&descriptor))
             }
             FsrResourceName::NewLocks => {
-                ViewOrBuffer::View(self.new_locks.create_view(&descriptor))
+                OwnedBindingResource::View(self.new_locks.create_view(&descriptor))
             }
             FsrResourceName::InternalUpscaled => {
-                if index == 0 {
-                    ViewOrBuffer::View(self.internal_upscaled_1.create_view(&descriptor))
+                if index == FrameKind::Odd {
+                    OwnedBindingResource::View(self.internal_upscaled_1.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.internal_upscaled_2.create_view(&descriptor))
+                    OwnedBindingResource::View(self.internal_upscaled_2.create_view(&descriptor))
                 }
             }
-            FsrResourceName::SpdMips => ViewOrBuffer::View(self.spd_mips.create_view(&descriptor)),
+            FsrResourceName::SpdMips => {
+                OwnedBindingResource::View(self.spd_mips.create_view(&descriptor))
+            }
             FsrResourceName::FarthestDepthMip1 => {
-                ViewOrBuffer::View(self.farthest_depth_mip1.create_view(&descriptor))
+                OwnedBindingResource::View(self.farthest_depth_mip1.create_view(&descriptor))
             }
             FsrResourceName::LumaHistory => {
-                if index == 0 {
-                    ViewOrBuffer::View(self.luma_history1.create_view(&descriptor))
+                if index == FrameKind::Odd {
+                    OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
                 } else {
-                    ViewOrBuffer::View(self.luma_history2.create_view(&descriptor))
+                    OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
                 }
             }
             FsrResourceName::SpdAtomicCount => {
-                ViewOrBuffer::Buffer(self.spd_atomic_counter.clone())
+                OwnedBindingResource::Buffer(self.spd_atomic_counter.clone())
             }
             FsrResourceName::DilatedReactiveMasks => {
-                ViewOrBuffer::View(self.dilated_reactive_masks.create_view(&descriptor))
+                OwnedBindingResource::View(self.dilated_reactive_masks.create_view(&descriptor))
             }
             FsrResourceName::Lanczos2Lut => {
-                ViewOrBuffer::View(self.lanczos2_lut.create_view(&descriptor))
+                OwnedBindingResource::View(self.lanczos2_lut.create_view(&descriptor))
             }
             FsrResourceName::DefaultReactivityMask => {
-                ViewOrBuffer::View(self.default_reactivity_mask.create_view(&descriptor))
+                OwnedBindingResource::View(self.default_reactivity_mask.create_view(&descriptor))
             }
             FsrResourceName::DefaultExposure => {
-                ViewOrBuffer::View(self.default_exposure.create_view(&descriptor))
+                OwnedBindingResource::View(self.default_exposure.create_view(&descriptor))
             }
             FsrResourceName::FrameInfo => {
-                ViewOrBuffer::View(self.frame_info.create_view(&descriptor))
+                OwnedBindingResource::View(self.frame_info.create_view(&descriptor))
+            }
+            FsrResourceName::SamplerPointClamp => {
+                OwnedBindingResource::Sampler(self.sampler_point_clamp.clone())
+            }
+            FsrResourceName::SamplerLinearClamp => {
+                OwnedBindingResource::Sampler(self.sampler_linear_clamp.clone())
             }
         }
     }
 }
 
-pub(crate) enum ViewOrBuffer {
+pub(crate) enum OwnedBindingResource {
     View(wgpu::TextureView),
     Buffer(wgpu::Buffer),
+    Sampler(wgpu::Sampler),
 }
 
-impl<'a> From<&'a ViewOrBuffer> for wgpu::BindingResource<'a> {
-    fn from(value: &'a ViewOrBuffer) -> Self {
+impl<'a> From<&'a OwnedBindingResource> for wgpu::BindingResource<'a> {
+    fn from(value: &'a OwnedBindingResource) -> Self {
         match value {
-            ViewOrBuffer::View(v) => wgpu::BindingResource::TextureView(v),
-            ViewOrBuffer::Buffer(b) => b.as_entire_binding(),
+            OwnedBindingResource::View(v) => wgpu::BindingResource::TextureView(v),
+            OwnedBindingResource::Buffer(b) => b.as_entire_binding(),
+            OwnedBindingResource::Sampler(s) => wgpu::BindingResource::Sampler(s),
         }
     }
 }

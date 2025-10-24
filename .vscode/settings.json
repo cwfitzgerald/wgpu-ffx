@@ -1,6 +1,6 @@
 {
   "files.associations": {
-    "cstdlib": "cpp"
+    "cstdlib": "cpp",
   },
   "rust-analyzer.files.exclude": [
     "wgpu-ffx-shaders-spv"
