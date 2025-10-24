@@ -5,10 +5,13 @@ mod constants;
 mod jitter;
 mod lanczos2;
 mod pass;
+mod rcas;
 mod resources;
+mod spd;
 
 use std::mem;
 
+use wgpu::util::DeviceExt as _;
 use wgpu_ffx_shaders_spv::fsr3upscaler::*;
 
 use crate::{
@@ -21,6 +24,8 @@ pub struct FsrContext {
 
     constants: constants::Constants,
     resources: resources::FsrResources,
+
+    buffer_clearer: clear_buffer::BufferClearer,
 
     pass_prepare_inputs: pass::FsrPass,
     pass_prepare_reactivity: pass::FsrPass,
@@ -53,6 +58,8 @@ impl FsrContext {
             min_disocclusion_accumulation: -1.0 / 3.0,
             ..Default::default()
         };
+
+        let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
         let shaders = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
             Fsr3upscalerOptionApplySharpening::Off,
@@ -128,6 +135,8 @@ impl FsrContext {
                 info.max_upscale_size,
             ),
             device: info.device,
+
+            buffer_clearer,
 
             pass_prepare_inputs,
             pass_prepare_reactivity,
@@ -321,19 +330,30 @@ impl FsrContext {
                 );
             }
 
-            let clear_values_exposure = [-1.0f32, 1.0, 0.0, 0.0];
-            info.queue.write_texture(
+            let mut clear_values_exposure = vec![-1.0f32, 1.0, 0.0, 0.0];
+            clear_values_exposure.resize(64, 0.0);
+            let staging_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("exposure_staging_buffer"),
+                        contents: bytemuck::cast_slice(&clear_values_exposure),
+                        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+                    });
+
+            info.encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &staging_buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(1),
+                    },
+                },
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.resources.frame_info,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
-                },
-                bytemuck::cast_slice(&clear_values_exposure),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(16),
-                    rows_per_image: Some(1),
                 },
                 wgpu::Extent3d {
                     width: 1,
@@ -341,7 +361,56 @@ impl FsrContext {
                     depth_or_array_layers: 1,
                 },
             );
+
+            let clear_value = if self.flags.contains(FsrContextFlags::DEPTH_INVERTED) {
+                [0.0_f32; 4]
+            } else {
+                [1.0_f32; 4]
+            };
+
+            self.buffer_clearer.dispatch(
+                &self.device,
+                &info.reconstructed_previous_depth,
+                &mut info.encoder,
+                bytemuck::cast(clear_value),
+            );
+
+            self.buffer_clearer.dispatch(
+                &self.device,
+                &self.resources.spd_atomic_counter,
+                &mut info.encoder,
+                [0, 0, 0, 0],
+            );
         }
+
+        self.constants.spd = constants::SpdConstants::new(spd::RectInput::new(
+            info.render_size[0],
+            info.render_size[1],
+        ));
+
+        let sharpness_remapped = (-2.0 * info.sharpness) + 2.0;
+        self.constants.rcas = rcas::populate_rcas_constants(sharpness_remapped);
+
+        let constants_staging_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("FsrContext::constants_staging_buffer"),
+                    contents: bytemuck::bytes_of(&self.constants),
+                    usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+                });
+
+        info.encoder.copy_buffer_to_buffer(
+            &constants_staging_buffer,
+            0,
+            &self.resources.constant_buffer,
+            0,
+            mem::size_of::<constants::Constants>() as wgpu::BufferAddress,
+        );
+
+        info.encoder.clear_texture(
+            &self.resources.spd_mips,
+            &wgpu::ImageSubresourceRange::default(),
+        );
 
         self.frame_kind.advance();
     }

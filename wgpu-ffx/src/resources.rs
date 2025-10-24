@@ -541,7 +541,7 @@ impl FsrResources {
         &self,
         dispatch: &FsrDispatchInfo,
         name: FsrResourceName,
-        index: FrameKind,
+        kind: FrameKind,
         descriptor: Option<wgpu::TextureViewDescriptor>,
     ) -> OwnedBindingResource {
         let descriptor = descriptor.unwrap_or_default();
@@ -602,21 +602,21 @@ impl FsrResources {
             }
 
             FsrResourceName::Accumulation => {
-                if index == FrameKind::Odd {
+                if kind == FrameKind::Odd {
                     OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
                 } else {
                     OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::Luma => {
-                if index == FrameKind::Odd {
+                if kind == FrameKind::Odd {
                     OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
                 } else {
                     OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::PreviousLuma => {
-                if index == FrameKind::Odd {
+                if kind == FrameKind::Odd {
                     OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
                 } else {
                     OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
@@ -632,7 +632,7 @@ impl FsrResources {
                 OwnedBindingResource::View(self.new_locks.create_view(&descriptor))
             }
             FsrResourceName::InternalUpscaled => {
-                if index == FrameKind::Odd {
+                if kind == FrameKind::Odd {
                     OwnedBindingResource::View(self.internal_upscaled_1.create_view(&descriptor))
                 } else {
                     OwnedBindingResource::View(self.internal_upscaled_2.create_view(&descriptor))
@@ -645,7 +645,7 @@ impl FsrResources {
                 OwnedBindingResource::View(self.farthest_depth_mip1.create_view(&descriptor))
             }
             FsrResourceName::LumaHistory => {
-                if index == FrameKind::Odd {
+                if kind == FrameKind::Odd {
                     OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
                 } else {
                     OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))

@@ -2,36 +2,45 @@ use bytemuck::{Pod, Zeroable};
 use std::{borrow::Cow, convert::TryFrom};
 use wgpu::util::DeviceExt;
 
+const WORDS_PER_INVOCATION: u32 = 4;
 const WORKGROUP_SIZE_X: u32 = 128;
+const WORDS_PER_WORKGROUP: u32 = WORDS_PER_INVOCATION * WORKGROUP_SIZE_X;
 const CLEAR_BUFFER_SHADER: &str = r#"
 struct ClearUniforms {
-    total_vec4s: u32;
-    _pad0: u32;
-    _pad1: u32;
-    _pad2: u32;
-    clear_value: vec4u;
+    total_words: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+    clear_value: vec4u,
 };
 
 @group(0) @binding(0)
-var<storage, read_write> target: array<vec4u>;
+var<storage, read_write> buf: array<u32>;
 
 @group(0) @binding(1)
 var<uniform> uniforms: ClearUniforms;
 
 @compute @workgroup_size(128, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
-    let index = global_id.x;
-    if (index >= uniforms.total_vec4s) {
+    let index = global_id.x * 4u;
+    if (index + 3 >= uniforms.total_words) {
+        for (var i: u32 = index; i < uniforms.total_words; i = i + 1u) {
+            buf[i] = uniforms.clear_value[i - index];
+        }
         return;
     }
-    target[index] = uniforms.clear_value;
+
+    buf[index + 0] = uniforms.clear_value[0];
+    buf[index + 1] = uniforms.clear_value[1];
+    buf[index + 2] = uniforms.clear_value[2];
+    buf[index + 3] = uniforms.clear_value[3];
 }
 "#;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct ClearUniformRaw {
-    total_vec4s: u32,
+    total_words: u32,
     _pad: [u32; 3],
     clear_value: [u32; 4],
 }
@@ -67,22 +76,18 @@ impl BufferClearer {
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,
         encoder: &mut wgpu::CommandEncoder,
-        clear_value: [f32; 4],
+        clear_value: [u32; 4],
     ) {
         let total_bytes = buffer.size();
         if total_bytes == 0 {
             return;
         }
-        assert!(
-            total_bytes % 16 == 0,
-            "BufferClearer requires buffer size multiple of 16 bytes"
-        );
-        let total_vec4s =
-            u32::try_from(total_bytes / 16).expect("BufferClearer buffer exceeds supported size");
+        let total_words =
+            u32::try_from(total_bytes / 4).expect("BufferClearer buffer exceeds supported size");
         let uniforms = ClearUniformRaw {
-            total_vec4s,
+            total_words,
             _pad: [0; 3],
-            clear_value: clear_value.map(f32::to_bits),
+            clear_value,
         };
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("BufferClearer::uniform_buffer"),
@@ -103,7 +108,7 @@ impl BufferClearer {
                 },
             ],
         });
-        let workgroups = total_vec4s.div_ceil(WORKGROUP_SIZE_X);
+        let workgroups = total_words.div_ceil(WORDS_PER_WORKGROUP);
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("BufferClearer::pass"),

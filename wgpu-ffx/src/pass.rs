@@ -1,4 +1,7 @@
-use crate::{FsrContextFlags, resources::AccessType, resources::FsrResourceName};
+use crate::{
+    FrameKind, FsrContextFlags, FsrDispatchInfo,
+    resources::{AccessType, FsrResourceName, FsrResources},
+};
 
 use wgpu_ffx_shaders_spv::fsr3upscaler::Shaders;
 
@@ -55,6 +58,43 @@ impl FsrPass {
             pipeline: compute_pipeline,
             bgl,
         }
+    }
+
+    fn dispatch(
+        &self,
+        device: &wgpu::Device,
+        pass: &mut wgpu::ComputePass<'_>,
+        resources: &FsrResources,
+        info: &FsrDispatchInfo,
+        flags: FsrContextFlags,
+        frame_kind: FrameKind,
+        x: u32,
+        y: u32,
+    ) {
+        let resources_list = self.kind.resources(flags);
+        let resources: Vec<_> = resources_list
+            .into_iter()
+            .map(|access| resources.to_view(info, access.name, frame_kind, access.desc))
+            .collect();
+
+        let bind_group_entries: Vec<_> = resources
+            .iter()
+            .enumerate()
+            .map(|(i, owned_resource)| wgpu::BindGroupEntry {
+                binding: i as u32,
+                resource: owned_resource.into(),
+            })
+            .collect();
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(&format!("{} Bind Group", self.kind.label())),
+            layout: &self.bgl,
+            entries: &bind_group_entries,
+        });
+
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(x, y, 1);
     }
 }
 
