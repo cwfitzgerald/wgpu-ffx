@@ -42,6 +42,7 @@ pub(crate) struct FsrConstants {
     pub shading_change_scale: f32,
     pub accumulation_added_per_frame: f32,
     pub min_disocclusion_accumulation: f32,
+    pub _padding: [u32; 3],
 }
 
 #[derive(Debug, Default, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -75,4 +76,5 @@ pub(crate) struct SpdConstants {
     pub num_work_groups: u32,
     pub work_group_offset: [u32; 2],
     pub render_size: [u32; 2],
+    pub _padding: [u32; 2],
 }

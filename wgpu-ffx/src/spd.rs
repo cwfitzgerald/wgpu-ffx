@@ -59,6 +59,7 @@ impl SpdConstants {
             num_work_groups,
             work_group_offset: [work_group_offset_x, work_group_offset_y],
             render_size: [rect.width, rect.height],
+            _padding: [0; 2],
         }
     }
 }

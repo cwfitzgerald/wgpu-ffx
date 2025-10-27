@@ -1,9 +1,10 @@
 use wgpu::util::DeviceExt as _;
 
-use crate::FrameKind;
+use crate::{FrameKind, pass::ResourceAccess};
 
 use super::FsrDispatchInfo;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AccessType {
     Srv,
     Uav,
@@ -79,7 +80,7 @@ impl FsrResourceName {
             FsrResourceName::InternalUpscaled => wgpu::TextureFormat::Rgba16Float,
             FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
             FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
-            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba8Unorm,
+            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
             FsrResourceName::SpdAtomicCount => {
                 panic!("SpdAtomicCount is a buffer")
             }
@@ -186,16 +187,22 @@ impl FsrResourceName {
                     count: None,
                 }
             }
-            (_, AccessType::Srv) => wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
+            (_, AccessType::Srv) => {
+                let filterable = match self {
+                    FsrResourceName::InputDepth => false,
+                    _ => true,
+                };
+                wgpu::BindGroupLayoutEntry {
+                    binding,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }
+            }
         }
     }
 }
@@ -268,7 +275,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -279,7 +288,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -290,7 +301,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -301,7 +314,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -312,7 +327,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -323,7 +340,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -345,7 +364,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -356,7 +377,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -367,7 +390,7 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rg16Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -378,7 +401,7 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -389,7 +412,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -400,7 +425,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -419,7 +446,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -485,7 +514,9 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -540,13 +571,18 @@ impl FsrResources {
     pub(crate) fn to_view(
         &self,
         dispatch: &FsrDispatchInfo,
-        name: FsrResourceName,
+        access: ResourceAccess,
         kind: FrameKind,
-        descriptor: Option<wgpu::TextureViewDescriptor>,
     ) -> OwnedBindingResource {
-        let descriptor = descriptor.unwrap_or_default();
+        let descriptor = match access.desc {
+            Some(desc) => desc,
+            None => wgpu::TextureViewDescriptor {
+                label: Some(&format!("FSR3 Resource View: {:?}", access.name)),
+                ..Default::default()
+            },
+        };
 
-        match name {
+        match access.name {
             FsrResourceName::InputColor => {
                 OwnedBindingResource::View(dispatch.color.create_view(&descriptor))
             }
@@ -602,24 +638,36 @@ impl FsrResources {
             }
 
             FsrResourceName::Accumulation => {
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
+                // UAV uses 1 on odd frames, 2 on even frames
+                // SRV uses 2 on odd frames, 1 on even frames
+                if access.access_type == AccessType::Uav {
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
+                    } else {
+                        OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
+                    }
                 } else {
-                    OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
+                    } else {
+                        OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
+                    }
                 }
             }
             FsrResourceName::Luma => {
+                // Luma always uses 2 on odd frames, 1 on even frames
                 if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
-                } else {
                     OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
+                } else {
+                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
                 }
             }
             FsrResourceName::PreviousLuma => {
+                // PreviousLuma always uses 1 on odd frames, 2 on even frames
                 if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
-                } else {
                     OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
+                } else {
+                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
@@ -632,10 +680,28 @@ impl FsrResources {
                 OwnedBindingResource::View(self.new_locks.create_view(&descriptor))
             }
             FsrResourceName::InternalUpscaled => {
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.internal_upscaled_1.create_view(&descriptor))
+                // UAV uses 1 on odd frames, 2 on even frames
+                // SRV uses 2 on odd frames, 1 on even frames
+                if access.access_type == AccessType::Uav {
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(
+                            self.internal_upscaled_1.create_view(&descriptor),
+                        )
+                    } else {
+                        OwnedBindingResource::View(
+                            self.internal_upscaled_2.create_view(&descriptor),
+                        )
+                    }
                 } else {
-                    OwnedBindingResource::View(self.internal_upscaled_2.create_view(&descriptor))
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(
+                            self.internal_upscaled_2.create_view(&descriptor),
+                        )
+                    } else {
+                        OwnedBindingResource::View(
+                            self.internal_upscaled_1.create_view(&descriptor),
+                        )
+                    }
                 }
             }
             FsrResourceName::SpdMips => {
@@ -645,10 +711,20 @@ impl FsrResources {
                 OwnedBindingResource::View(self.farthest_depth_mip1.create_view(&descriptor))
             }
             FsrResourceName::LumaHistory => {
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
+                // UAV uses 1 on odd frames, 2 on even frames
+                // SRV uses 2 on odd frames, 1 on even frames
+                if access.access_type == AccessType::Uav {
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
+                    } else {
+                        OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
+                    }
                 } else {
-                    OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
+                    if kind == FrameKind::Odd {
+                        OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
+                    } else {
+                        OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
+                    }
                 }
             }
             FsrResourceName::SpdAtomicCount => {

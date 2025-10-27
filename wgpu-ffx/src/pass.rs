@@ -74,7 +74,7 @@ impl FsrPass {
         let resources_list = self.kind.resources(flags);
         let resources: Vec<_> = resources_list
             .into_iter()
-            .map(|access| resources.to_view(info, access.name, frame_kind, access.desc))
+            .map(|access| resources.to_view(info, access, frame_kind))
             .collect();
 
         let bind_group_entries: Vec<_> = resources
@@ -263,7 +263,7 @@ impl FsrPassKind {
                     desc: Some(wgpu::TextureViewDescriptor {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 5,
-                        mip_level_count: None,
+                        mip_level_count: Some(1),
                         ..Default::default()
                     }),
                 },
@@ -366,7 +366,7 @@ impl FsrPassKind {
                     access_type: AccessType::Uav,
                     desc: Some(wgpu::TextureViewDescriptor {
                         base_mip_level: 5,
-                        mip_level_count: None,
+                        mip_level_count: Some(1),
                         ..Default::default()
                     }),
                 },
@@ -392,7 +392,7 @@ impl FsrPassKind {
 }
 
 pub(crate) struct ResourceAccess {
-    name: FsrResourceName,
-    access_type: AccessType,
-    desc: Option<wgpu::TextureViewDescriptor<'static>>,
+    pub name: FsrResourceName,
+    pub access_type: AccessType,
+    pub desc: Option<wgpu::TextureViewDescriptor<'static>>,
 }

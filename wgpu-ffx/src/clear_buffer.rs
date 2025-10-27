@@ -18,7 +18,7 @@ struct ClearUniforms {{
     start_word: u32,
     _pad0: u32,
     _pad1: u32,
-    clear_value: array<u32, WORDS_PER_INVOCATION>,
+    clear_value: vec4u,
 }};
 
 @group(0) @binding(0)

@@ -17,6 +17,7 @@ use wgpu_ffx_shaders_spv::fsr3upscaler::*;
 
 use crate::{
     constants::FsrConstants,
+    pass::ResourceAccess,
     resources::{FsrResourceName, OwnedBindingResource},
 };
 
@@ -341,12 +342,28 @@ impl FsrContext {
             None
         };
 
+        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
-            let zeroed_resources = [FsrResourceName::Accumulation, FsrResourceName::SpdMips];
-            for name in zeroed_resources {
+            let zeroed_resources = [
+                // We always clear the SRV accumulation view here
+                // as we are clearing what we're _reading_ from.
+                ResourceAccess {
+                    name: FsrResourceName::Accumulation,
+                    access_type: resources::AccessType::Srv,
+                    desc: None,
+                },
+                // We also need to clear the SPD mips, this doesn't
+                // change based on frame kind.
+                ResourceAccess {
+                    name: FsrResourceName::SpdMips,
+                    access_type: resources::AccessType::Srv,
+                    desc: None,
+                },
+            ];
+            for access in zeroed_resources {
                 let OwnedBindingResource::View(accumulation_texture) =
-                    self.resources.to_view(&info, name, self.frame_kind, None)
+                    self.resources.to_view(&info, access, self.frame_kind)
                 else {
                     unreachable!()
                 };
@@ -438,6 +455,10 @@ impl FsrContext {
             &self.resources.spd_mips,
             &wgpu::ImageSubresourceRange::default(),
         );
+
+        if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
+            panic!("Error during Clearing: {}", err);
+        }
 
         let mut compute_pass = info
             .encoder
@@ -817,46 +838,48 @@ fn fsr_dispatch_smoke() {
         mapped_at_creation: false,
     });
 
-    // Create encoder
-    let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("test_encoder"),
-    });
+    for _ in 0..2 {
+        // Create encoder
+        let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test_encoder"),
+        });
 
-    // Create dispatch info with valid parameters
-    let mut dispatch_info = FsrDispatchInfo {
-        queue: queue.clone(),
-        encoder,
-        color,
-        depth,
-        motion_vectors,
-        exposure: None,
-        reactive_mask: None,
-        transparency_and_composition: None,
-        dilated_depth,
-        dilated_motion_vectors,
-        reconstructed_previous_depth,
-        output,
-        jitter_offset: [0.5, 0.5],
-        motion_vector_scale: [1.0, 1.0],
-        render_size,
-        upscale_size,
-        enable_sharpening: false,
-        sharpness: 0.5,
-        frame_time_delta: 16.6, // ~60fps in milliseconds
-        pre_exposure: 1.0,
-        reset_history: false,
-        camera_near: 0.1,
-        camera_far: 1000.0,
-        camera_fov_y: std::f32::consts::FRAC_PI_3, // 60 degrees vertical FOV
-        view_space_to_meters_factor: 1.0,
-        flags: FsrDispatchFlags::empty(),
-    };
+        // Create dispatch info with valid parameters
+        let mut dispatch_info = FsrDispatchInfo {
+            queue: queue.clone(),
+            encoder,
+            color: color.clone(),
+            depth: depth.clone(),
+            motion_vectors: motion_vectors.clone(),
+            exposure: None,
+            reactive_mask: None,
+            transparency_and_composition: None,
+            dilated_depth: dilated_depth.clone(),
+            dilated_motion_vectors: dilated_motion_vectors.clone(),
+            reconstructed_previous_depth: reconstructed_previous_depth.clone(),
+            output: output.clone(),
+            jitter_offset: [0.5, 0.5],
+            motion_vector_scale: [1.0, 1.0],
+            render_size,
+            upscale_size,
+            enable_sharpening: false,
+            sharpness: 0.5,
+            frame_time_delta: 16.6, // ~60fps in milliseconds
+            pre_exposure: 1.0,
+            reset_history: false,
+            camera_near: 0.1,
+            camera_far: 1000.0,
+            camera_fov_y: std::f32::consts::FRAC_PI_3, // 60 degrees vertical FOV
+            view_space_to_meters_factor: 1.0,
+            flags: FsrDispatchFlags::empty(),
+        };
 
-    // Dispatch FSR - this should complete without errors
-    fsr_context
-        .dispatch(&mut dispatch_info)
-        .expect("FSR dispatch failed");
+        // Dispatch FSR - this should complete without errors
+        fsr_context
+            .dispatch(&mut dispatch_info)
+            .expect("FSR dispatch failed");
 
-    // Submit the command buffer
-    queue.submit(Some(dispatch_info.encoder.finish()));
+        // Submit the command buffer
+        queue.submit([dispatch_info.encoder.finish()]);
+    }
 }
