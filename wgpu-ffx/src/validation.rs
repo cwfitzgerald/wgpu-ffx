@@ -169,7 +169,7 @@ pub fn check_dispatch(
                 camera_far: info.camera_far,
             });
         }
-        if infinite_depth && info.camera_near != f32::MAX {
+        if infinite_depth && (info.camera_near != f32::MAX && info.camera_near != f32::INFINITY) {
             return Err(FsrDispatchError::InvertedInfiniteDepthNearNotMax {
                 camera_near: info.camera_near,
             });
@@ -186,7 +186,7 @@ pub fn check_dispatch(
                 camera_far: info.camera_far,
             });
         }
-        if infinite_depth && info.camera_far != f32::MAX {
+        if infinite_depth && (info.camera_far != f32::MAX && info.camera_near != f32::INFINITY) {
             return Err(FsrDispatchError::InfiniteDepthFarNotMax {
                 camera_far: info.camera_far,
             });

@@ -22,6 +22,7 @@ use crate::{
 };
 
 // Re-export validation types
+pub use jitter::*;
 pub use validation::FsrDispatchError;
 
 pub struct FsrContext {
@@ -225,7 +226,7 @@ impl FsrContext {
     ///
     /// This performs comprehensive validation of all dispatch parameters to ensure they are
     /// within expected ranges and consistent with the context configuration.
-    pub fn check(&self, info: &FsrDispatchInfo) -> Result<(), FsrDispatchError> {
+    fn check(&self, info: &FsrDispatchInfo) -> Result<(), FsrDispatchError> {
         validation::check_dispatch(info, self.flags, self.constants.fsr.max_render_size)
     }
 
@@ -593,11 +594,11 @@ bitflags::bitflags! {
     }
 }
 
-pub struct FsrDispatchInfo {
+pub struct FsrDispatchInfo<'a> {
     /// The wgpu queue to use for submitting uploads.
     pub queue: wgpu::Queue,
     /// The wgpu CommandEncoder to record FSR3 rendering commands into.
-    pub encoder: wgpu::CommandEncoder,
+    pub encoder: &'a mut wgpu::CommandEncoder,
 
     /// A Texture containing the color buffer for the current frame (at render resolution).
     pub color: wgpu::Texture,
@@ -840,14 +841,14 @@ fn fsr_dispatch_smoke() {
 
     for _ in 0..2 {
         // Create encoder
-        let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("test_encoder"),
         });
 
         // Create dispatch info with valid parameters
         let mut dispatch_info = FsrDispatchInfo {
             queue: queue.clone(),
-            encoder,
+            encoder: &mut encoder,
             color: color.clone(),
             depth: depth.clone(),
             motion_vectors: motion_vectors.clone(),
@@ -880,6 +881,6 @@ fn fsr_dispatch_smoke() {
             .expect("FSR dispatch failed");
 
         // Submit the command buffer
-        queue.submit([dispatch_info.encoder.finish()]);
+        queue.submit([encoder.finish()]);
     }
 }
