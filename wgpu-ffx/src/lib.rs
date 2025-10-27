@@ -8,6 +8,7 @@ mod pass;
 mod rcas;
 mod resources;
 mod spd;
+mod validation;
 
 use std::mem;
 
@@ -18,6 +19,9 @@ use crate::{
     constants::FsrConstants,
     resources::{FsrResourceName, OwnedBindingResource},
 };
+
+// Re-export validation types
+pub use validation::FsrDispatchError;
 
 pub struct FsrContext {
     device: wgpu::Device,
@@ -221,120 +225,7 @@ impl FsrContext {
     /// This performs comprehensive validation of all dispatch parameters to ensure they are
     /// within expected ranges and consistent with the context configuration.
     pub fn check(&self, info: &FsrDispatchInfo) -> Result<(), FsrDispatchError> {
-        // Check exposure configuration
-        if info.exposure.is_some() && self.flags.contains(FsrContextFlags::AUTO_EXPOSURE) {
-            return Err(FsrDispatchError::ExposureWithAutoExposureFlag);
-        }
-
-        // Check jitter offset range
-        if info.jitter_offset[0].abs() > 1.0 || info.jitter_offset[1].abs() > 1.0 {
-            return Err(FsrDispatchError::JitterOffsetOutOfRange {
-                x: info.jitter_offset[0],
-                y: info.jitter_offset[1],
-            });
-        }
-
-        // Check motion vector scale
-        let max_render_size = self.constants.fsr.max_render_size;
-        if info.motion_vector_scale[0] > max_render_size[0] as f32
-            || info.motion_vector_scale[1] > max_render_size[1] as f32
-        {
-            return Err(FsrDispatchError::MotionVectorScaleTooLarge {
-                x: info.motion_vector_scale[0],
-                y: info.motion_vector_scale[1],
-                max_width: max_render_size[0],
-                max_height: max_render_size[1],
-            });
-        }
-        if info.motion_vector_scale[0] == 0.0 || info.motion_vector_scale[1] == 0.0 {
-            return Err(FsrDispatchError::MotionVectorScaleZero {
-                x: info.motion_vector_scale[0],
-                y: info.motion_vector_scale[1],
-            });
-        }
-
-        // Check render size
-        if info.render_size[0] > max_render_size[0] || info.render_size[1] > max_render_size[1] {
-            return Err(FsrDispatchError::RenderSizeTooLarge {
-                width: info.render_size[0],
-                height: info.render_size[1],
-                max_width: max_render_size[0],
-                max_height: max_render_size[1],
-            });
-        }
-        if info.render_size[0] == 0 || info.render_size[1] == 0 {
-            return Err(FsrDispatchError::RenderSizeZero {
-                width: info.render_size[0],
-                height: info.render_size[1],
-            });
-        }
-
-        // Check sharpness range
-        if info.sharpness < 0.0 || info.sharpness > 1.0 {
-            return Err(FsrDispatchError::SharpnessOutOfRange(info.sharpness));
-        }
-
-        // Check frame time delta
-        if info.frame_time_delta < 1.0 {
-            return Err(FsrDispatchError::FrameTimeDeltaTooLow(
-                info.frame_time_delta,
-            ));
-        }
-
-        // Check pre-exposure
-        if info.pre_exposure == 0.0 {
-            return Err(FsrDispatchError::PreExposureZero);
-        }
-
-        // Check depth configuration
-        let infinite_depth = self.flags.contains(FsrContextFlags::DEPTH_INFINITE);
-        let inverted_depth = self.flags.contains(FsrContextFlags::DEPTH_INVERTED);
-
-        if inverted_depth {
-            if info.camera_near < info.camera_far {
-                return Err(FsrDispatchError::InvertedDepthNearLessThanFar {
-                    camera_near: info.camera_near,
-                    camera_far: info.camera_far,
-                });
-            }
-            if infinite_depth && info.camera_near != f32::MAX {
-                return Err(FsrDispatchError::InvertedInfiniteDepthNearNotMax {
-                    camera_near: info.camera_near,
-                });
-            }
-            if info.camera_far < 0.075 {
-                return Err(FsrDispatchError::InvertedDepthFarTooLow {
-                    camera_far: info.camera_far,
-                });
-            }
-        } else {
-            if info.camera_near > info.camera_far {
-                return Err(FsrDispatchError::NormalDepthNearGreaterThanFar {
-                    camera_near: info.camera_near,
-                    camera_far: info.camera_far,
-                });
-            }
-            if infinite_depth && info.camera_far != f32::MAX {
-                return Err(FsrDispatchError::InfiniteDepthFarNotMax {
-                    camera_far: info.camera_far,
-                });
-            }
-            if info.camera_near < 0.075 {
-                return Err(FsrDispatchError::CameraNearTooLow {
-                    camera_near: info.camera_near,
-                });
-            }
-        }
-
-        // Check camera FOV
-        if info.camera_fov_y <= 0.0 {
-            return Err(FsrDispatchError::CameraFovTooLow(info.camera_fov_y));
-        }
-        if info.camera_fov_y > std::f32::consts::PI {
-            return Err(FsrDispatchError::CameraFovTooHigh(info.camera_fov_y));
-        }
-
-        Ok(())
+        validation::check_dispatch(info, self.flags, self.constants.fsr.max_render_size)
     }
 
     pub fn dispatch(&mut self, info: &mut FsrDispatchInfo) -> Result<(), FsrDispatchError> {
@@ -741,89 +632,6 @@ pub struct FsrDispatchInfo {
     pub flags: FsrDispatchFlags,
 }
 
-/// Errors that can occur during FSR dispatch validation.
-#[derive(Debug, thiserror::Error)]
-pub enum FsrDispatchError {
-    #[error("Exposure resource provided, but AUTO_EXPOSURE flag is set")]
-    ExposureWithAutoExposureFlag,
-
-    #[error("Jitter offset [{x}, {y}] is outside the expected range [-1.0, 1.0]")]
-    JitterOffsetOutOfRange { x: f32, y: f32 },
-
-    #[error(
-        "Motion vector scale [{x}, {y}] is greater than max render size [{max_width}, {max_height}]"
-    )]
-    MotionVectorScaleTooLarge {
-        x: f32,
-        y: f32,
-        max_width: u32,
-        max_height: u32,
-    },
-
-    #[error("Motion vector scale contains zero value: [{x}, {y}]")]
-    MotionVectorScaleZero { x: f32, y: f32 },
-
-    #[error(
-        "Render size [{width}, {height}] is greater than context max render size [{max_width}, {max_height}]"
-    )]
-    RenderSizeTooLarge {
-        width: u32,
-        height: u32,
-        max_width: u32,
-        max_height: u32,
-    },
-
-    #[error("Render size contains zero dimension: [{width}, {height}]")]
-    RenderSizeZero { width: u32, height: u32 },
-
-    #[error("Sharpness {0} is outside the expected range [0.0, 1.0]")]
-    SharpnessOutOfRange(f32),
-
-    #[error(
-        "Frame time delta {0}ms is less than 1.0ms - this value should be milliseconds (~16.6ms for 60fps)"
-    )]
-    FrameTimeDeltaTooLow(f32),
-
-    #[error("Pre-exposure is 0.0, which is invalid")]
-    PreExposureZero,
-
-    #[error(
-        "DEPTH_INVERTED flag is set, but camera near ({camera_near}) is less than camera far ({camera_far})"
-    )]
-    InvertedDepthNearLessThanFar { camera_near: f32, camera_far: f32 },
-
-    #[error(
-        "DEPTH_INVERTED and DEPTH_INFINITE flags are set, but camera near is {camera_near} (expected f32::MAX)"
-    )]
-    InvertedInfiniteDepthNearNotMax { camera_near: f32 },
-
-    #[error(
-        "DEPTH_INVERTED flag is set, but camera far ({camera_far}) is very low (< 0.075), which may cause depth separation artifacts"
-    )]
-    InvertedDepthFarTooLow { camera_far: f32 },
-
-    #[error(
-        "Camera near ({camera_near}) is greater than camera far ({camera_far}) in non-inverted depth context"
-    )]
-    NormalDepthNearGreaterThanFar { camera_near: f32, camera_far: f32 },
-
-    #[error("DEPTH_INFINITE flag is set, but camera far is {camera_far} (expected f32::MAX)")]
-    InfiniteDepthFarNotMax { camera_far: f32 },
-
-    #[error(
-        "Camera near ({camera_near}) is very low (< 0.075), which may cause depth separation artifacts"
-    )]
-    CameraNearTooLow { camera_near: f32 },
-
-    #[error("Camera vertical FOV angle must be greater than 0.0, got {0}")]
-    CameraFovTooLow(f32),
-
-    #[error(
-        "Camera vertical FOV angle is {0} radians, which is greater than 180 degrees (π radians)"
-    )]
-    CameraFovTooHigh(f32),
-}
-
 bitflags::bitflags! {
     /// Configuration options for a single FSR dispatch.
     pub struct FsrDispatchFlags: u32 {
@@ -873,4 +681,182 @@ fn fsr_smoke() {
         max_upscale_size: [3840, 2160],
         flags: FsrContextFlags::empty(),
     });
+}
+
+#[test]
+fn fsr_dispatch_smoke() {
+    // Setup device and queue
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        ..Default::default()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+        .expect("Failed to find an appropriate adapter");
+
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: adapter.features(),
+        required_limits: adapter.limits(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::Off,
+        label: None,
+    }))
+    .expect("Failed to create device");
+
+    // Setup resolution parameters
+    let render_size = [640u32, 360u32];
+    let upscale_size = [1280u32, 720u32];
+
+    // Create FSR context
+    let mut fsr_context = FsrContext::new(FsrContextInfo {
+        device: device.clone(),
+        queue: queue.clone(),
+        max_render_size: render_size,
+        max_upscale_size: upscale_size,
+        flags: FsrContextFlags::HIGH_DYNAMIC_RANGE,
+    });
+
+    // Create dummy input textures
+    let color = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_color"),
+        size: wgpu::Extent3d {
+            width: render_size[0],
+            height: render_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+
+    let depth = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_depth"),
+        size: wgpu::Extent3d {
+            width: render_size[0],
+            height: render_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+
+    let motion_vectors = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_motion_vectors"),
+        size: wgpu::Extent3d {
+            width: render_size[0],
+            height: render_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rg16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+
+    // Create dummy output textures
+    let dilated_depth = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_dilated_depth"),
+        size: wgpu::Extent3d {
+            width: render_size[0],
+            height: render_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R32Float,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+
+    let dilated_motion_vectors = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_dilated_motion_vectors"),
+        size: wgpu::Extent3d {
+            width: render_size[0],
+            height: render_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rg16Float,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+
+    let output = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test_output"),
+        size: wgpu::Extent3d {
+            width: upscale_size[0],
+            height: upscale_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+
+    // Create reconstructed previous depth buffer
+    // Buffer size needs to accommodate render resolution
+    let buffer_size = (render_size[0] * render_size[1] * 4) as u64; // 4 bytes per pixel for R32
+    let reconstructed_previous_depth = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test_reconstructed_previous_depth"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Create encoder
+    let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("test_encoder"),
+    });
+
+    // Create dispatch info with valid parameters
+    let mut dispatch_info = FsrDispatchInfo {
+        queue: queue.clone(),
+        encoder,
+        color,
+        depth,
+        motion_vectors,
+        exposure: None,
+        reactive_mask: None,
+        transparency_and_composition: None,
+        dilated_depth,
+        dilated_motion_vectors,
+        reconstructed_previous_depth,
+        output,
+        jitter_offset: [0.5, 0.5],
+        motion_vector_scale: [1.0, 1.0],
+        render_size,
+        upscale_size,
+        enable_sharpening: false,
+        sharpness: 0.5,
+        frame_time_delta: 16.6, // ~60fps in milliseconds
+        pre_exposure: 1.0,
+        reset_history: false,
+        camera_near: 0.1,
+        camera_far: 1000.0,
+        camera_fov_y: std::f32::consts::FRAC_PI_3, // 60 degrees vertical FOV
+        view_space_to_meters_factor: 1.0,
+        flags: FsrDispatchFlags::empty(),
+    };
+
+    // Dispatch FSR - this should complete without errors
+    fsr_context
+        .dispatch(&mut dispatch_info)
+        .expect("FSR dispatch failed");
+
+    // Submit the command buffer
+    queue.submit(Some(dispatch_info.encoder.finish()));
 }
