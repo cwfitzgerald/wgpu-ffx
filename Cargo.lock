@@ -958,6 +958,7 @@ dependencies = [
  "bytemuck",
  "half",
  "pollster",
+ "thiserror",
  "wgpu",
  "wgpu-ffx-shaders-spv",
 ]

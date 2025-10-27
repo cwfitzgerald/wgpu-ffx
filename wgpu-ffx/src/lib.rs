@@ -216,7 +216,130 @@ impl FsrContext {
         fsrc.device_to_view_depth[3] = f32::recip(b);
     }
 
-    fn dispatch(&mut self, info: &mut FsrDispatchInfo) {
+    /// Validate dispatch parameters for correctness.
+    ///
+    /// This performs comprehensive validation of all dispatch parameters to ensure they are
+    /// within expected ranges and consistent with the context configuration.
+    pub fn check(&self, info: &FsrDispatchInfo) -> Result<(), FsrDispatchError> {
+        // Check exposure configuration
+        if info.exposure.is_some() && self.flags.contains(FsrContextFlags::AUTO_EXPOSURE) {
+            return Err(FsrDispatchError::ExposureWithAutoExposureFlag);
+        }
+
+        // Check jitter offset range
+        if info.jitter_offset[0].abs() > 1.0 || info.jitter_offset[1].abs() > 1.0 {
+            return Err(FsrDispatchError::JitterOffsetOutOfRange {
+                x: info.jitter_offset[0],
+                y: info.jitter_offset[1],
+            });
+        }
+
+        // Check motion vector scale
+        let max_render_size = self.constants.fsr.max_render_size;
+        if info.motion_vector_scale[0] > max_render_size[0] as f32
+            || info.motion_vector_scale[1] > max_render_size[1] as f32
+        {
+            return Err(FsrDispatchError::MotionVectorScaleTooLarge {
+                x: info.motion_vector_scale[0],
+                y: info.motion_vector_scale[1],
+                max_width: max_render_size[0],
+                max_height: max_render_size[1],
+            });
+        }
+        if info.motion_vector_scale[0] == 0.0 || info.motion_vector_scale[1] == 0.0 {
+            return Err(FsrDispatchError::MotionVectorScaleZero {
+                x: info.motion_vector_scale[0],
+                y: info.motion_vector_scale[1],
+            });
+        }
+
+        // Check render size
+        if info.render_size[0] > max_render_size[0] || info.render_size[1] > max_render_size[1] {
+            return Err(FsrDispatchError::RenderSizeTooLarge {
+                width: info.render_size[0],
+                height: info.render_size[1],
+                max_width: max_render_size[0],
+                max_height: max_render_size[1],
+            });
+        }
+        if info.render_size[0] == 0 || info.render_size[1] == 0 {
+            return Err(FsrDispatchError::RenderSizeZero {
+                width: info.render_size[0],
+                height: info.render_size[1],
+            });
+        }
+
+        // Check sharpness range
+        if info.sharpness < 0.0 || info.sharpness > 1.0 {
+            return Err(FsrDispatchError::SharpnessOutOfRange(info.sharpness));
+        }
+
+        // Check frame time delta
+        if info.frame_time_delta < 1.0 {
+            return Err(FsrDispatchError::FrameTimeDeltaTooLow(
+                info.frame_time_delta,
+            ));
+        }
+
+        // Check pre-exposure
+        if info.pre_exposure == 0.0 {
+            return Err(FsrDispatchError::PreExposureZero);
+        }
+
+        // Check depth configuration
+        let infinite_depth = self.flags.contains(FsrContextFlags::DEPTH_INFINITE);
+        let inverted_depth = self.flags.contains(FsrContextFlags::DEPTH_INVERTED);
+
+        if inverted_depth {
+            if info.camera_near < info.camera_far {
+                return Err(FsrDispatchError::InvertedDepthNearLessThanFar {
+                    camera_near: info.camera_near,
+                    camera_far: info.camera_far,
+                });
+            }
+            if infinite_depth && info.camera_near != f32::MAX {
+                return Err(FsrDispatchError::InvertedInfiniteDepthNearNotMax {
+                    camera_near: info.camera_near,
+                });
+            }
+            if info.camera_far < 0.075 {
+                return Err(FsrDispatchError::InvertedDepthFarTooLow {
+                    camera_far: info.camera_far,
+                });
+            }
+        } else {
+            if info.camera_near > info.camera_far {
+                return Err(FsrDispatchError::NormalDepthNearGreaterThanFar {
+                    camera_near: info.camera_near,
+                    camera_far: info.camera_far,
+                });
+            }
+            if infinite_depth && info.camera_far != f32::MAX {
+                return Err(FsrDispatchError::InfiniteDepthFarNotMax {
+                    camera_far: info.camera_far,
+                });
+            }
+            if info.camera_near < 0.075 {
+                return Err(FsrDispatchError::CameraNearTooLow {
+                    camera_near: info.camera_near,
+                });
+            }
+        }
+
+        // Check camera FOV
+        if info.camera_fov_y <= 0.0 {
+            return Err(FsrDispatchError::CameraFovTooLow(info.camera_fov_y));
+        }
+        if info.camera_fov_y > std::f32::consts::PI {
+            return Err(FsrDispatchError::CameraFovTooHigh(info.camera_fov_y));
+        }
+
+        Ok(())
+    }
+
+    pub fn dispatch(&mut self, info: &mut FsrDispatchInfo) -> Result<(), FsrDispatchError> {
+        self.check(info)?;
+
         let reset_accumulation = info.reset_history || self.first_execution;
         self.first_execution = false;
 
@@ -313,6 +436,19 @@ impl FsrContext {
             (fsrc.render_size[0] / 2).div_ceil(thread_group_work_region_dim);
         let workgroups_shading_change_y =
             (fsrc.render_size[1] / 2).div_ceil(thread_group_work_region_dim);
+        let spd_thread_group_work_region_dim = 64;
+        let workgroups_spd_x = info.render_size[0].div_ceil(spd_thread_group_work_region_dim);
+        let workgroups_spd_y = info.render_size[1].div_ceil(spd_thread_group_work_region_dim);
+
+        let rcas_workgroups = if info.enable_sharpening {
+            let rcas_thread_group_work_region_dim = 16;
+            Some((
+                info.upscale_size[0].div_ceil(rcas_thread_group_work_region_dim),
+                info.upscale_size[1].div_ceil(rcas_thread_group_work_region_dim),
+            ))
+        } else {
+            None
+        };
 
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
@@ -412,7 +548,102 @@ impl FsrContext {
             &wgpu::ImageSubresourceRange::default(),
         );
 
+        let mut compute_pass = info
+            .encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("FsrContext::dispatch::compute_pass"),
+                timestamp_writes: None,
+            })
+            .forget_lifetime();
+
+        self.pass_prepare_inputs.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_src_x,
+            workgroups_src_y,
+        );
+        self.pass_luma_pyramid.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_spd_x,
+            workgroups_spd_y,
+        );
+        self.pass_shading_change_pyramid.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_spd_x,
+            workgroups_spd_y,
+        );
+        self.pass_shading_change.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_shading_change_x,
+            workgroups_shading_change_y,
+        );
+        self.pass_prepare_reactivity.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_src_x,
+            workgroups_src_y,
+        );
+        self.pass_luma_instability.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_src_x,
+            workgroups_src_y,
+        );
+        self.pass_accumulate.dispatch(
+            &self.device,
+            &mut compute_pass,
+            &self.resources,
+            info,
+            self.flags,
+            self.frame_kind,
+            workgroups_dst_x,
+            workgroups_dst_y,
+        );
+        if let Some((workgroups_rcas_x, workgroups_rcas_y)) = rcas_workgroups {
+            self.pass_rcas.dispatch(
+                &self.device,
+                &mut compute_pass,
+                &self.resources,
+                info,
+                self.flags,
+                self.frame_kind,
+                workgroups_rcas_x,
+                workgroups_rcas_y,
+            );
+        }
+
+        drop(compute_pass);
+
         self.frame_kind.advance();
+
+        Ok(())
     }
 }
 
@@ -510,6 +741,89 @@ pub struct FsrDispatchInfo {
     pub flags: FsrDispatchFlags,
 }
 
+/// Errors that can occur during FSR dispatch validation.
+#[derive(Debug, thiserror::Error)]
+pub enum FsrDispatchError {
+    #[error("Exposure resource provided, but AUTO_EXPOSURE flag is set")]
+    ExposureWithAutoExposureFlag,
+
+    #[error("Jitter offset [{x}, {y}] is outside the expected range [-1.0, 1.0]")]
+    JitterOffsetOutOfRange { x: f32, y: f32 },
+
+    #[error(
+        "Motion vector scale [{x}, {y}] is greater than max render size [{max_width}, {max_height}]"
+    )]
+    MotionVectorScaleTooLarge {
+        x: f32,
+        y: f32,
+        max_width: u32,
+        max_height: u32,
+    },
+
+    #[error("Motion vector scale contains zero value: [{x}, {y}]")]
+    MotionVectorScaleZero { x: f32, y: f32 },
+
+    #[error(
+        "Render size [{width}, {height}] is greater than context max render size [{max_width}, {max_height}]"
+    )]
+    RenderSizeTooLarge {
+        width: u32,
+        height: u32,
+        max_width: u32,
+        max_height: u32,
+    },
+
+    #[error("Render size contains zero dimension: [{width}, {height}]")]
+    RenderSizeZero { width: u32, height: u32 },
+
+    #[error("Sharpness {0} is outside the expected range [0.0, 1.0]")]
+    SharpnessOutOfRange(f32),
+
+    #[error(
+        "Frame time delta {0}ms is less than 1.0ms - this value should be milliseconds (~16.6ms for 60fps)"
+    )]
+    FrameTimeDeltaTooLow(f32),
+
+    #[error("Pre-exposure is 0.0, which is invalid")]
+    PreExposureZero,
+
+    #[error(
+        "DEPTH_INVERTED flag is set, but camera near ({camera_near}) is less than camera far ({camera_far})"
+    )]
+    InvertedDepthNearLessThanFar { camera_near: f32, camera_far: f32 },
+
+    #[error(
+        "DEPTH_INVERTED and DEPTH_INFINITE flags are set, but camera near is {camera_near} (expected f32::MAX)"
+    )]
+    InvertedInfiniteDepthNearNotMax { camera_near: f32 },
+
+    #[error(
+        "DEPTH_INVERTED flag is set, but camera far ({camera_far}) is very low (< 0.075), which may cause depth separation artifacts"
+    )]
+    InvertedDepthFarTooLow { camera_far: f32 },
+
+    #[error(
+        "Camera near ({camera_near}) is greater than camera far ({camera_far}) in non-inverted depth context"
+    )]
+    NormalDepthNearGreaterThanFar { camera_near: f32, camera_far: f32 },
+
+    #[error("DEPTH_INFINITE flag is set, but camera far is {camera_far} (expected f32::MAX)")]
+    InfiniteDepthFarNotMax { camera_far: f32 },
+
+    #[error(
+        "Camera near ({camera_near}) is very low (< 0.075), which may cause depth separation artifacts"
+    )]
+    CameraNearTooLow { camera_near: f32 },
+
+    #[error("Camera vertical FOV angle must be greater than 0.0, got {0}")]
+    CameraFovTooLow(f32),
+
+    #[error(
+        "Camera vertical FOV angle is {0} radians, which is greater than 180 degrees (π radians)"
+    )]
+    CameraFovTooHigh(f32),
+}
+
 bitflags::bitflags! {
     /// Configuration options for a single FSR dispatch.
     pub struct FsrDispatchFlags: u32 {
@@ -536,7 +850,10 @@ impl FrameKind {
 
 #[test]
 fn fsr_smoke() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        ..Default::default()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Failed to find an appropriate adapter");
 

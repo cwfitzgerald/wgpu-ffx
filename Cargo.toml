@@ -22,5 +22,6 @@ half = "2.7"
 pico-args = "0.5"
 rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
+thiserror = "2"
 toml = "0.9"
 wgpu = { version = "26", default-features = false }

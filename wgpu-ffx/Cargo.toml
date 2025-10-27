@@ -7,6 +7,7 @@ edition.workspace = true
 bitflags.workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 half = { workspace = true, features = ["bytemuck"] }
+thiserror.workspace = true
 wgpu = { workspace = true, features = ["spirv", "wgsl"] }
 wgpu-ffx-shaders-spv.workspace = true
 

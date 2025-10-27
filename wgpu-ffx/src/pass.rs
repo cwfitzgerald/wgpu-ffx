@@ -60,7 +60,7 @@ impl FsrPass {
         }
     }
 
-    fn dispatch(
+    pub fn dispatch(
         &self,
         device: &wgpu::Device,
         pass: &mut wgpu::ComputePass<'_>,

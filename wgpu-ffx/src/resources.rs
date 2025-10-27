@@ -329,11 +329,11 @@ impl FsrResources {
 
         let new_locks = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("FSR3 New Locks"),
-            size: half_max_render_size,
+            size: max_upscale_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Uint,
+            format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
