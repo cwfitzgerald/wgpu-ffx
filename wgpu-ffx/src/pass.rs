@@ -20,19 +20,27 @@ impl FsrPass {
         flags: FsrContextFlags,
         shaders: &Shaders,
     ) -> Self {
-        // let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        //     label: Some(kind.label()),
-        //     source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(bytemuck::cast_slice(
-        //         kind.shader(shaders),
-        //     ))),
-        // });
-        let shader_module = unsafe {
-            device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough::SpirV(
-                wgpu::ShaderModuleDescriptorSpirV {
-                    label: Some(kind.label()),
-                    source: Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders))),
-                },
-            ))
+        let shader_module = if device
+            .features()
+            .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
+        {
+            unsafe {
+                device.create_shader_module_passthrough(
+                    wgpu::ShaderModuleDescriptorPassthrough::SpirV(
+                        wgpu::ShaderModuleDescriptorSpirV {
+                            label: Some(kind.label()),
+                            source: Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders))),
+                        },
+                    ),
+                )
+            }
+        } else {
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(kind.label()),
+                source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(
+                    bytemuck::cast_slice(kind.shader(shaders)),
+                )),
+            })
         };
 
         let resources = kind.resources(flags);

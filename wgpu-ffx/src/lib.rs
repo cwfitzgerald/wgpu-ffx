@@ -701,7 +701,7 @@ impl FrameKind {
 #[test]
 fn fsr_smoke() {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
         ..Default::default()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
@@ -729,7 +729,7 @@ fn fsr_smoke() {
 fn fsr_dispatch_smoke() {
     // Setup device and queue
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
         ..Default::default()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
