@@ -322,7 +322,7 @@ impl FsrPassKind {
             FsrPassKind::ShadingChangePyramid => vec![
                 // SRV bindings
                 ResourceAccess { name: FsrResourceName::Luma, access_type: AccessType::Srv, desc: None },
-                ResourceAccess { name: FsrResourceName::LumaHistory, access_type: AccessType::Srv, desc: None },
+                ResourceAccess { name: FsrResourceName::PreviousLuma, access_type: AccessType::Srv, desc: None },
                 ResourceAccess { name: FsrResourceName::OutputDilatedMotionVectors, access_type: AccessType::Srv, desc: None },
                 ResourceAccess { name: FsrResourceName::InputExposure, access_type: AccessType::Srv, desc: None },
                 ResourceAccess { name: FsrResourceName::SpdAtomicCount, access_type: AccessType::Uav, desc: None },

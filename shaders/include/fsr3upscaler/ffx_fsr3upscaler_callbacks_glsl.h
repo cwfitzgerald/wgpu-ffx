@@ -630,13 +630,12 @@ void StoreNewLocks(FfxInt32x2 iPxPos, FfxFloat32 newLock)
 #if defined(FSR3UPSCALER_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
 layout(set = 0, binding = FSR3UPSCALER_BIND_SRV_RECONSTRUCTED_PREV_NEAREST_DEPTH) buffer RReconstructedPreviousNearestDepth
 {
-    FfxUInt32 height;
     FfxUInt32 r_reconstructed_previous_nearest_depth[];
 };
 
 FfxFloat32 LoadReconstructedPrevDepth(FfxInt32x2 iPxPos)
 {
-    FfxUInt32 uDepth = r_reconstructed_previous_nearest_depth[iPxPos.y * height + iPxPos.x];
+    FfxUInt32 uDepth = r_reconstructed_previous_nearest_depth[iPxPos.y * MaxRenderSize().x + iPxPos.x];
     return uintBitsToFloat(uDepth);
 }
 #endif
@@ -644,7 +643,6 @@ FfxFloat32 LoadReconstructedPrevDepth(FfxInt32x2 iPxPos)
 #if defined(FSR3UPSCALER_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH)
 layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_RECONSTRUCTED_PREV_NEAREST_DEPTH) buffer RwReconstructedPreviousNearestDepth
 {
-    FfxUInt32 height;
     FfxUInt32 rw_reconstructed_previous_nearest_depth[];
 };
 
@@ -653,15 +651,15 @@ void StoreReconstructedDepth(FfxInt32x2 iPxSample, FfxFloat32 fDepth)
     FfxUInt32 uDepth = floatBitsToUint(fDepth);
 
 #if FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH
-    atomicMax(rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x], uDepth);
+    atomicMax(rw_reconstructed_previous_nearest_depth[iPxSample.y * MaxRenderSize().x + iPxSample.x], uDepth);
 #else
-    atomicMin(rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x], uDepth); // min for standard, max for inverted depth
+    atomicMin(rw_reconstructed_previous_nearest_depth[iPxSample.y * MaxRenderSize().x + iPxSample.x], uDepth); // min for standard, max for inverted depth
 #endif
 }
 
 void SetReconstructedDepth(FfxInt32x2 iPxSample, FfxUInt32 uValue)
 {
-    rw_reconstructed_previous_nearest_depth[iPxSample.y * height + iPxSample.x] = uValue;
+    rw_reconstructed_previous_nearest_depth[iPxSample.y * MaxRenderSize().x + iPxSample.x] = uValue;
 }
 #endif
 

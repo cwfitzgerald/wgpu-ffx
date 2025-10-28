@@ -519,14 +519,13 @@ fn compile_single_permutation(permutation: &ShaderPermutation) -> Result<Compila
 
     // Set shader stage
     cmd.arg("-fshader-stage=comp");
+    cmd.arg("-g");
+    cmd.arg("-O0");
 
     // Input and output files (compile to memory first)
     cmd.arg(&permutation.shader_file);
     cmd.arg("-o");
     cmd.arg("-"); // Output to stdout
-
-    // Set optimization level
-    cmd.arg("-O");
 
     // Execute the command
     let output = cmd.output()?;

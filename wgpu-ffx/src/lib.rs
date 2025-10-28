@@ -42,6 +42,7 @@ pub struct FsrContext {
     // pass_generate_reactive: pass::FsrPass,
     pass_shading_change_pyramid: pass::FsrPass,
     pass_luma_instability: pass::FsrPass,
+    pass_debug_view: pass::FsrPass,
 
     first_execution: bool,
     previous_jitter_offset: [f32; 2],
@@ -128,6 +129,12 @@ impl FsrContext {
             info.flags,
             &shaders,
         );
+        let pass_debug_view = pass::FsrPass::new(
+            &info.device,
+            pass::FsrPassKind::DebugView,
+            info.flags,
+            &shaders,
+        );
 
         Self {
             constants: constants::Constants {
@@ -153,6 +160,7 @@ impl FsrContext {
             // pass_generate_reactive,
             pass_shading_change_pyramid,
             pass_luma_instability,
+            pass_debug_view,
 
             first_execution: true,
             previous_jitter_offset: [0.0, 0.0],
@@ -279,7 +287,7 @@ impl FsrContext {
             info.render_size
         };
         fsrc.motion_vector_scale = std::array::from_fn(|i| {
-            info.motion_vector_scale[i] * motion_vectors_target_size[i] as f32
+            info.motion_vector_scale[i] / motion_vectors_target_size[i] as f32
         });
 
         // compute jitter cancellation
@@ -539,16 +547,28 @@ impl FsrContext {
             workgroups_dst_x,
             workgroups_dst_y,
         );
-        if let Some((workgroups_rcas_x, workgroups_rcas_y)) = rcas_workgroups {
-            self.pass_rcas.dispatch(
+        // if let Some((workgroups_rcas_x, workgroups_rcas_y)) = rcas_workgroups {
+        //     self.pass_rcas.dispatch(
+        //         &self.device,
+        //         &mut compute_pass,
+        //         &self.resources,
+        //         info,
+        //         self.flags,
+        //         self.frame_kind,
+        //         workgroups_rcas_x,
+        //         workgroups_rcas_y,
+        //     );
+        // }
+        if info.flags.contains(FsrDispatchFlags::DRAW_DEBUG_VIEW) {
+            self.pass_debug_view.dispatch(
                 &self.device,
                 &mut compute_pass,
                 &self.resources,
                 info,
                 self.flags,
                 self.frame_kind,
-                workgroups_rcas_x,
-                workgroups_rcas_y,
+                workgroups_dst_x,
+                workgroups_dst_y,
             );
         }
 
@@ -658,7 +678,7 @@ bitflags::bitflags! {
     /// Configuration options for a single FSR dispatch.
     pub struct FsrDispatchFlags: u32 {
         /// A bit indicating that the interpolated output resource will contain debug views with relevant information.
-        const FFX_FSR3UPSCALER_DISPATCH_DRAW_DEBUG_VIEW = 1 << 0;
+        const DRAW_DEBUG_VIEW = 1 << 0;
     }
 }
 
