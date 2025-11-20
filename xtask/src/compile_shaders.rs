@@ -219,7 +219,7 @@ fn compile_all_permutations(
                         "Error compiling permutation {}: {}",
                         permutation.permutation_id, e
                     );
-                    return None;
+                    None
                 }
             }
         })

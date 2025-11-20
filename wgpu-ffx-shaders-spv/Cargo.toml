@@ -2,3 +2,6 @@
 name = "wgpu-ffx-shaders-spv"
 version.workspace = true
 edition.workspace = true
+
+[lints.clippy]
+too_many_arguments = "allow"

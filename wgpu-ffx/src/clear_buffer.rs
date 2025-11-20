@@ -10,7 +10,7 @@ const WORDS_PER_WORKGROUP: u32 = WORDS_PER_INVOCATION * WORKGROUP_SIZE_X;
 fn clear_buffer_shader_source() -> String {
     format!(
         r#"
-const WORDS_PER_INVOCATION: u32 = {words_per_invocation}u;
+const WORDS_PER_INVOCATION: u32 = {WORDS_PER_INVOCATION}u;
 const LAST_WORD_OFFSET: u32 = WORDS_PER_INVOCATION - 1u;
 
 struct ClearUniforms {{
@@ -27,7 +27,7 @@ var<storage, read_write> buf: array<u32>;
 @group(0) @binding(1)
 var<uniform> uniforms: ClearUniforms;
 
-@compute @workgroup_size({workgroup_size}, 1, 1)
+@compute @workgroup_size({WORKGROUP_SIZE_X}, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {{
     let index = uniforms.start_word + global_id.x * WORDS_PER_INVOCATION;
     if (index >= uniforms.total_words) {{
@@ -46,8 +46,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {{
     }}
 }}
 "#,
-        words_per_invocation = WORDS_PER_INVOCATION,
-        workgroup_size = WORKGROUP_SIZE_X,
     )
 }
 

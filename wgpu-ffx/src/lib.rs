@@ -341,7 +341,7 @@ impl FsrContext {
         let workgroups_spd_x = info.render_size[0].div_ceil(spd_thread_group_work_region_dim);
         let workgroups_spd_y = info.render_size[1].div_ceil(spd_thread_group_work_region_dim);
 
-        let rcas_workgroups = if info.enable_sharpening {
+        let _rcas_workgroups = if info.enable_sharpening {
             let rcas_thread_group_work_region_dim = 16;
             Some((
                 info.upscale_size[0].div_ceil(rcas_thread_group_work_region_dim),
@@ -372,7 +372,7 @@ impl FsrContext {
             ];
             for access in zeroed_resources {
                 let OwnedBindingResource::View(accumulation_texture) =
-                    self.resources.to_view(&info, access, self.frame_kind)
+                    self.resources.to_view(info, access, self.frame_kind)
                 else {
                     unreachable!()
                 };
@@ -414,27 +414,27 @@ impl FsrContext {
                     depth_or_array_layers: 1,
                 },
             );
-
-            let clear_value = if self.flags.contains(FsrContextFlags::DEPTH_INVERTED) {
-                [0.0_f32; 4]
-            } else {
-                [1.0_f32; 4]
-            };
-
-            self.buffer_clearer.dispatch(
-                &self.device,
-                &info.reconstructed_previous_depth,
-                &mut info.encoder,
-                bytemuck::cast(clear_value),
-            );
-
-            self.buffer_clearer.dispatch(
-                &self.device,
-                &self.resources.spd_atomic_counter,
-                &mut info.encoder,
-                [0, 0, 0, 0],
-            );
         }
+
+        let clear_value = if self.flags.contains(FsrContextFlags::DEPTH_INVERTED) {
+            [0.0_f32; 4]
+        } else {
+            [1.0_f32; 4]
+        };
+
+        self.buffer_clearer.dispatch(
+            &self.device,
+            &info.reconstructed_previous_depth,
+            info.encoder,
+            bytemuck::cast(clear_value),
+        );
+
+        self.buffer_clearer.dispatch(
+            &self.device,
+            &self.resources.spd_atomic_counter,
+            info.encoder,
+            [0, 0, 0, 0],
+        );
 
         self.constants.spd = constants::SpdConstants::new(spd::RectInput::new(
             info.render_size[0],
@@ -466,7 +466,7 @@ impl FsrContext {
         );
 
         if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
-            panic!("Error during Clearing: {}", err);
+            panic!("Error during Clearing: {err}");
         }
 
         let mut compute_pass = info

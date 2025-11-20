@@ -180,7 +180,7 @@ impl FsrResourceName {
                     binding,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
-                        access: access,
+                        access,
                         format: self.format(),
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
@@ -188,10 +188,7 @@ impl FsrResourceName {
                 }
             }
             (_, AccessType::Srv) => {
-                let filterable = match self {
-                    FsrResourceName::InputDepth => false,
-                    _ => true,
-                };
+                let filterable = !matches!(self, FsrResourceName::InputDepth);
                 wgpu::BindGroupLayoutEntry {
                     binding,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -574,14 +571,20 @@ impl FsrResources {
         access: ResourceAccess,
         kind: FrameKind,
     ) -> OwnedBindingResource {
+        let label;
         let descriptor = match access.desc {
             Some(desc) => desc,
-            None => wgpu::TextureViewDescriptor {
-                label: Some(&format!("FSR3 Resource View: {:?}", access.name)),
-                ..Default::default()
-            },
+            None => {
+                label = format!("FSR3 Resource View: {:?}", access.name);
+                wgpu::TextureViewDescriptor {
+                    label: Some(&label),
+                    ..Default::default()
+                }
+            }
         };
 
+        // This makes things more reasonable
+        #[expect(clippy::collapsible_else_if)]
         match access.name {
             FsrResourceName::InputColor => {
                 OwnedBindingResource::View(dispatch.color.create_view(&descriptor))

@@ -6,7 +6,7 @@ fn halton(index: i32, base: i32) -> f32 {
 
     while current_index > 0 {
         f /= base as f32;
-        result = result + f * (current_index % base) as f32;
+        result += f * (current_index % base) as f32;
         current_index = f32::floor(current_index as f32 / base as f32) as i32;
     }
 
@@ -15,9 +15,8 @@ fn halton(index: i32, base: i32) -> f32 {
 
 pub fn get_jitter_phase_count(render_width: i32, display_width: i32) -> i32 {
     const BASE_PHASE_COUNT: f32 = 8.0;
-    let jitter_phase_count =
-        (BASE_PHASE_COUNT * f32::powf(display_width as f32 / render_width as f32, 2.0)) as i32;
-    jitter_phase_count
+
+    (BASE_PHASE_COUNT * f32::powf(display_width as f32 / render_width as f32, 2.0)) as i32
 }
 
 pub fn get_jitter_offset(index: i32, phase_count: i32) -> [f32; 2] {

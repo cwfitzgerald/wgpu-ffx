@@ -78,6 +78,7 @@ impl FsrPass {
         }
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub fn dispatch(
         &self,
         device: &wgpu::Device,
