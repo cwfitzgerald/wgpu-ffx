@@ -715,16 +715,34 @@ fn generate_embedded_shaders(
         unique_shaders.insert(result.content_hash.clone(), *result);
     }
 
+    code.push_str("
+#[repr(align(4))]
+struct Align4<const N: usize>([u8; N]);
+
+macro_rules! include_shaders {
+    () => {};
+    ($NAME:ident = $PATH:expr, $($REST:tt)*) => {
+        static $NAME: &'static [u8] = &(Align4::<{include_bytes!($PATH).len()}>(*include_bytes!($PATH)).0);
+        include_shaders!{$($REST)*}
+    };
+    ($NAME:ident = $PATH:expr) => {
+        include_shaders!{static $NAME = $path;};
+    };
+}
+
+include_shaders! {
+");
+
     for (hash, result) in &unique_shaders {
         let var_name = format!("SHADER_{}", &hash[..HASH_TRUNCATE_LEN].to_uppercase());
 
         code.push_str(&format!(
-            "static {var_name}: &[u8] = include_bytes!(\"{}\");\n",
+            "    {var_name} = \"{}\",\n",
             result.output_path.file_name().unwrap()
         ));
     }
 
-    code.push('\n');
+    code.push_str("}\n\n");
     Ok(())
 }
 
