@@ -22,17 +22,21 @@ impl FsrPass {
     ) -> Self {
         let shader_module = if device
             .features()
-            .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
+            .contains(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS)
         {
             unsafe {
-                device.create_shader_module_passthrough(
-                    wgpu::ShaderModuleDescriptorPassthrough::SpirV(
-                        wgpu::ShaderModuleDescriptorSpirV {
-                            label: Some(kind.label()),
-                            source: Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders))),
-                        },
-                    ),
-                )
+                device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
+                    entry_point: String::new(),
+                    label: Some(kind.label()),
+                    num_workgroups: (0, 0, 0),
+                    runtime_checks: wgpu::ShaderRuntimeChecks::unchecked(),
+                    spirv: Some(Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders)))),
+                    dxil: None,
+                    msl: None,
+                    hlsl: None,
+                    glsl: None,
+                    wgsl: None,
+                })
             }
         } else {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {

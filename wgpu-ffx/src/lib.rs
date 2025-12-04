@@ -711,6 +711,7 @@ fn fsr_smoke() {
         required_features: adapter.features(),
         required_limits: adapter.limits(),
         memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
         trace: wgpu::Trace::Off,
         label: None,
     }))
@@ -739,6 +740,7 @@ fn fsr_dispatch_smoke() {
         required_features: adapter.features(),
         required_limits: adapter.limits(),
         memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
         trace: wgpu::Trace::Off,
         label: None,
     }))
