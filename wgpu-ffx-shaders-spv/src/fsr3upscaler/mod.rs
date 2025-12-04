@@ -47,46 +47,63 @@ pub enum Wave64 {
     Off,
 }
 
-static SHADER_F6535E1A: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_f6535e1a.spv");
-static SHADER_0E87CA12: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_0e87ca12.spv");
-static SHADER_7D4436F1: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_7d4436f1.spv");
-static SHADER_2031688E: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_2031688e.spv");
-static SHADER_5F1457A0: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_5f1457a0.spv");
-static SHADER_AB946A99: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_ab946a99.spv");
-static SHADER_D5749892: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_d5749892.spv");
-static SHADER_08E5E695: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_08e5e695.spv");
-static SHADER_0B5DC708: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_0b5dc708.spv");
-static SHADER_6037CBCB: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_6037cbcb.spv");
-static SHADER_7F49DA97: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_7f49da97.spv");
-static SHADER_01DDA0BA: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_01dda0ba.spv");
-static SHADER_E1042F6B: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_e1042f6b.spv");
-static SHADER_90628E33: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_90628e33.spv");
-static SHADER_2948CB13: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_2948cb13.spv");
-static SHADER_829697BA: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_829697ba.spv");
-static SHADER_8A50A725: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_8a50a725.spv");
-static SHADER_D9BF6249: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_d9bf6249.spv");
-static SHADER_0F440BD0: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_0f440bd0.spv");
-static SHADER_9F831AD6: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_9f831ad6.spv");
-static SHADER_5A1A43DF: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_5a1a43df.spv");
-static SHADER_CC63F1AD: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_cc63f1ad.spv");
-static SHADER_28625914: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_28625914.spv");
-static SHADER_9F5BB592: &[u8] = include_bytes!("ffx_fsr3upscaler_accumulate_pass_9f5bb592.spv");
-static SHADER_413BEF49: &[u8] = include_bytes!("ffx_fsr3upscaler_autogen_reactive_pass_413bef49.spv");
-static SHADER_6D34165D: &[u8] = include_bytes!("ffx_fsr3upscaler_debug_view_pass_6d34165d.spv");
-static SHADER_B23EE70A: &[u8] = include_bytes!("ffx_fsr3upscaler_luma_instability_pass_b23ee70a.spv");
-static SHADER_F00859B0: &[u8] = include_bytes!("ffx_fsr3upscaler_luma_pyramid_pass_f00859b0.spv");
-static SHADER_636D4413: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_636d4413.spv");
-static SHADER_F00AD501: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_f00ad501.spv");
-static SHADER_23C90F5A: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_23c90f5a.spv");
-static SHADER_4838B10E: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_4838b10e.spv");
-static SHADER_CA03736A: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_ca03736a.spv");
-static SHADER_44B56687: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_44b56687.spv");
-static SHADER_79194A07: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_79194a07.spv");
-static SHADER_E57A12AC: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_inputs_pass_e57a12ac.spv");
-static SHADER_E1DA6977: &[u8] = include_bytes!("ffx_fsr3upscaler_prepare_reactivity_pass_e1da6977.spv");
-static SHADER_3FA3EE1D: &[u8] = include_bytes!("ffx_fsr3upscaler_rcas_pass_3fa3ee1d.spv");
-static SHADER_5E3ED5E0: &[u8] = include_bytes!("ffx_fsr3upscaler_shading_change_pass_5e3ed5e0.spv");
-static SHADER_B63CD97E: &[u8] = include_bytes!("ffx_fsr3upscaler_shading_change_pyramid_pass_b63cd97e.spv");
+
+#[repr(align(4))]
+struct Align4<const N: usize>([u8; N]);
+
+macro_rules! include_shaders {
+    () => {};
+    ($NAME:ident = $PATH:expr, $($REST:tt)*) => {
+        static $NAME: &'static [u8] = &(Align4::<{include_bytes!($PATH).len()}>(*include_bytes!($PATH)).0);
+        include_shaders!{$($REST)*}
+    };
+    ($NAME:ident = $PATH:expr) => {
+        include_shaders!{static $NAME = $path;};
+    };
+}
+
+include_shaders! {
+    SHADER_F6535E1A = "ffx_fsr3upscaler_accumulate_pass_f6535e1a.spv",
+    SHADER_0E87CA12 = "ffx_fsr3upscaler_accumulate_pass_0e87ca12.spv",
+    SHADER_7D4436F1 = "ffx_fsr3upscaler_accumulate_pass_7d4436f1.spv",
+    SHADER_2031688E = "ffx_fsr3upscaler_accumulate_pass_2031688e.spv",
+    SHADER_5F1457A0 = "ffx_fsr3upscaler_accumulate_pass_5f1457a0.spv",
+    SHADER_AB946A99 = "ffx_fsr3upscaler_accumulate_pass_ab946a99.spv",
+    SHADER_D5749892 = "ffx_fsr3upscaler_accumulate_pass_d5749892.spv",
+    SHADER_08E5E695 = "ffx_fsr3upscaler_accumulate_pass_08e5e695.spv",
+    SHADER_0B5DC708 = "ffx_fsr3upscaler_accumulate_pass_0b5dc708.spv",
+    SHADER_6037CBCB = "ffx_fsr3upscaler_accumulate_pass_6037cbcb.spv",
+    SHADER_7F49DA97 = "ffx_fsr3upscaler_accumulate_pass_7f49da97.spv",
+    SHADER_01DDA0BA = "ffx_fsr3upscaler_accumulate_pass_01dda0ba.spv",
+    SHADER_E1042F6B = "ffx_fsr3upscaler_accumulate_pass_e1042f6b.spv",
+    SHADER_90628E33 = "ffx_fsr3upscaler_accumulate_pass_90628e33.spv",
+    SHADER_2948CB13 = "ffx_fsr3upscaler_accumulate_pass_2948cb13.spv",
+    SHADER_829697BA = "ffx_fsr3upscaler_accumulate_pass_829697ba.spv",
+    SHADER_8A50A725 = "ffx_fsr3upscaler_accumulate_pass_8a50a725.spv",
+    SHADER_D9BF6249 = "ffx_fsr3upscaler_accumulate_pass_d9bf6249.spv",
+    SHADER_0F440BD0 = "ffx_fsr3upscaler_accumulate_pass_0f440bd0.spv",
+    SHADER_9F831AD6 = "ffx_fsr3upscaler_accumulate_pass_9f831ad6.spv",
+    SHADER_5A1A43DF = "ffx_fsr3upscaler_accumulate_pass_5a1a43df.spv",
+    SHADER_CC63F1AD = "ffx_fsr3upscaler_accumulate_pass_cc63f1ad.spv",
+    SHADER_28625914 = "ffx_fsr3upscaler_accumulate_pass_28625914.spv",
+    SHADER_9F5BB592 = "ffx_fsr3upscaler_accumulate_pass_9f5bb592.spv",
+    SHADER_413BEF49 = "ffx_fsr3upscaler_autogen_reactive_pass_413bef49.spv",
+    SHADER_6D34165D = "ffx_fsr3upscaler_debug_view_pass_6d34165d.spv",
+    SHADER_B23EE70A = "ffx_fsr3upscaler_luma_instability_pass_b23ee70a.spv",
+    SHADER_F00859B0 = "ffx_fsr3upscaler_luma_pyramid_pass_f00859b0.spv",
+    SHADER_636D4413 = "ffx_fsr3upscaler_prepare_inputs_pass_636d4413.spv",
+    SHADER_F00AD501 = "ffx_fsr3upscaler_prepare_inputs_pass_f00ad501.spv",
+    SHADER_23C90F5A = "ffx_fsr3upscaler_prepare_inputs_pass_23c90f5a.spv",
+    SHADER_4838B10E = "ffx_fsr3upscaler_prepare_inputs_pass_4838b10e.spv",
+    SHADER_CA03736A = "ffx_fsr3upscaler_prepare_inputs_pass_ca03736a.spv",
+    SHADER_44B56687 = "ffx_fsr3upscaler_prepare_inputs_pass_44b56687.spv",
+    SHADER_79194A07 = "ffx_fsr3upscaler_prepare_inputs_pass_79194a07.spv",
+    SHADER_E57A12AC = "ffx_fsr3upscaler_prepare_inputs_pass_e57a12ac.spv",
+    SHADER_E1DA6977 = "ffx_fsr3upscaler_prepare_reactivity_pass_e1da6977.spv",
+    SHADER_3FA3EE1D = "ffx_fsr3upscaler_rcas_pass_3fa3ee1d.spv",
+    SHADER_5E3ED5E0 = "ffx_fsr3upscaler_shading_change_pass_5e3ed5e0.spv",
+    SHADER_B63CD97E = "ffx_fsr3upscaler_shading_change_pyramid_pass_b63cd97e.spv",
+}
 
 #[derive(Debug, Clone)]
 pub struct Shaders {
