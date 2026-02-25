@@ -3,6 +3,7 @@ resolver = "3"
 members = ["wgpu-ffx", "wgpu-ffx-shaders-spv", "xtask"]
 
 [workspace.package]
+authors = ["wgpu-ffx developers", "Advanced Micro Devices, Inc."]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
