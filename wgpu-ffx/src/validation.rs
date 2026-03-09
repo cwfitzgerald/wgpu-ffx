@@ -1,4 +1,7 @@
 //! Validation for FSR dispatch parameters.
+//!
+//! All checks are run before any GPU work is recorded, so a validation
+//! failure will never leave the command encoder in a partially-recorded state.
 
 use crate::{FsrContextFlags, FsrDispatchInfo};
 

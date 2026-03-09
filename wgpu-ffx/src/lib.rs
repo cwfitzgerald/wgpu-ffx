@@ -1,3 +1,22 @@
+//! AMD FidelityFX Super Resolution 3 (FSR3) upscaler for wgpu.
+//!
+//! This crate provides a Rust implementation of AMD's FSR3 temporal upscaler,
+//! allowing applications to render at a lower resolution and reconstruct
+//! high-quality output at display resolution using temporal accumulation.
+//!
+//! # Usage
+//!
+//! 1. Create an [`FsrContext`] with [`FsrContextInfo`] describing your device,
+//!    maximum render/upscale resolutions, and feature flags.
+//! 2. Each frame, fill an [`FsrDispatchInfo`] with the current frame's textures,
+//!    camera parameters, and jitter offset, then call [`FsrContext::dispatch`].
+//!
+//! Jitter must be applied to the projection matrix and the same offsets passed
+//! to [`FsrDispatchInfo::jitter_offset`]. Use [`get_jitter_phase_count`] and
+//! [`get_jitter_offset`] to compute Halton-sequence jitter values.
+//!
+//! Dispatch returns [`FsrDispatchError`] if any parameters fail validation.
+
 #![allow(dead_code)]
 
 mod clear_buffer;
@@ -25,6 +44,11 @@ use crate::{
 pub use jitter::*;
 pub use validation::FsrDispatchError;
 
+/// The main FSR3 upscaler context.
+///
+/// Holds compiled GPU pipelines and internal resources needed for temporal
+/// upscaling. Create one per upscale target with [`FsrContext::new`], then
+/// call [`FsrContext::dispatch`] each frame to record the upscaling passes.
 pub struct FsrContext {
     device: wgpu::Device,
 
@@ -54,6 +78,10 @@ pub struct FsrContext {
 }
 
 impl FsrContext {
+    /// Create a new FSR3 upscaler context.
+    ///
+    /// Compiles all shader pipelines and allocates internal resources sized
+    /// for the maximum render and upscale resolutions specified in `info`.
     pub fn new(info: FsrContextInfo) -> Self {
         let fsr_constants = constants::FsrConstants {
             max_render_size: info.max_render_size,
@@ -238,6 +266,11 @@ impl FsrContext {
         validation::check_dispatch(info, self.flags, self.constants.fsr.max_render_size)
     }
 
+    /// Record the FSR3 upscaling compute passes into the provided command encoder.
+    ///
+    /// Validates `info` parameters, updates internal state, and records all
+    /// compute passes. The encoder is **not** submitted — the caller is
+    /// responsible for finishing and submitting it.
     pub fn dispatch(&mut self, info: &mut FsrDispatchInfo) -> Result<(), FsrDispatchError> {
         self.check(info)?;
 
@@ -614,6 +647,11 @@ bitflags::bitflags! {
     }
 }
 
+/// Per-frame dispatch parameters for the FSR3 upscaler.
+///
+/// Contains all textures, buffers, camera parameters, and settings needed
+/// for a single upscaling frame. See the field documentation for format and
+/// size requirements.
 pub struct FsrDispatchInfo<'a> {
     /// The wgpu queue to use for submitting uploads.
     pub queue: wgpu::Queue,
@@ -624,7 +662,7 @@ pub struct FsrDispatchInfo<'a> {
     pub color: wgpu::Texture,
     /// A Texture containing 32bit depth values for the current frame (at render resolution).
     pub depth: wgpu::Texture,
-    /// A Texture containing 2-dimensional motion vectors (at render resolution if <c><i>FFX_FSR3UPSCALER_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS</i></c> is not set).
+    /// A Texture containing 2-dimensional motion vectors (at render resolution if [`FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS`] is not set).
     pub motion_vectors: wgpu::Texture,
     /// An optional Texture containing a 1x1 exposure value.
     pub exposure: Option<wgpu::Texture>,
@@ -632,11 +670,11 @@ pub struct FsrDispatchInfo<'a> {
     pub reactive_mask: Option<wgpu::Texture>,
     /// An optional Texture containing alpha value of special objects in the scene.
     pub transparency_and_composition: Option<wgpu::Texture>,
-    /// A Texture allocated as described in <TODO> that is used to emit dilated depth and share with following effects.
+    /// A Texture with format `R32Float` at render resolution, with `STORAGE_BINDING` and `TEXTURE_BINDING` usage. Used to emit dilated depth and share with following effects.
     pub dilated_depth: wgpu::Texture,
-    /// A Texture allocated as described in <TODO> that is used to emit dilated motion vectors and share with following effects.
+    /// A Texture with format `Rg16Float` at render resolution, with `STORAGE_BINDING` and `TEXTURE_BINDING` usage. Used to emit dilated motion vectors and share with following effects.
     pub dilated_motion_vectors: wgpu::Texture,
-    /// A Buffer allocated as described in <TODO> that is used to emit reconstructed previous nearest depth and share with following effects.
+    /// A Buffer of size `render_width * render_height * 4` bytes, with `STORAGE` and `COPY_DST` usage. Used to emit reconstructed previous nearest depth and share with following effects.
     pub reconstructed_previous_depth: wgpu::Buffer,
     /// A Texture containing the output color buffer for the current frame (at presentation resolution).
     pub output: wgpu::Texture,
@@ -670,7 +708,7 @@ pub struct FsrDispatchInfo<'a> {
     /// The scale factor to convert view space units to meters
     pub view_space_to_meters_factor: f32,
 
-    /// combination of FfxFsr3UpscalerDispatchFlags
+    /// Combination of [`FsrDispatchFlags`].
     pub flags: FsrDispatchFlags,
 }
 
