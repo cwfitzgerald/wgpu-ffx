@@ -9,6 +9,7 @@ env:
   CARGO_INCREMENTAL: false
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
+  CI_RUST_VERSION: "1.94"
 
 jobs:
   fmt:
@@ -16,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/install-rust
+        with:
+          components: rustfmt
 
       - run: cargo fmt --all -- --check
 
@@ -28,6 +33,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/install-rust
+        with:
+          components: clippy
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -48,6 +57,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/install-rust
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -75,6 +86,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/install-rust
 
       - name: (Linux) Install Mesa
         if: runner.os == 'Linux'
