@@ -27,4 +27,4 @@ thiserror = "2"
 toml = "1.0"
 log = "0.4"
 xshell = "0.2"
-wgpu = { version = "27", default-features = false }
+wgpu = { version = "28", default-features = false }
