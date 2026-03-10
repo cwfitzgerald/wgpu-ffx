@@ -524,7 +524,7 @@ impl FsrResources {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -535,7 +535,7 @@ impl FsrResources {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -584,7 +584,6 @@ impl FsrResources {
         };
 
         // This makes things more reasonable
-        #[expect(clippy::collapsible_else_if)]
         match access.name {
             FsrResourceName::InputColor => {
                 OwnedBindingResource::View(dispatch.color.create_view(&descriptor))

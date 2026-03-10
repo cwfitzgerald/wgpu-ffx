@@ -384,7 +384,7 @@ impl FsrContext {
             None
         };
 
-        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope_guard = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
             let zeroed_resources = [
@@ -498,7 +498,7 @@ impl FsrContext {
             &wgpu::ImageSubresourceRange::default(),
         );
 
-        if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
+        if let Some(err) = pollster::block_on(error_scope_guard.pop()) {
             panic!("Error during Clearing: {err}");
         }
 
