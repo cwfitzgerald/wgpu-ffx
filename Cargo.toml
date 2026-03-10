@@ -24,7 +24,7 @@ pico-args = "0.5"
 rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2"
-toml = "0.9"
+toml = "1.0"
 log = "0.4"
 xshell = "0.2"
 wgpu = { version = "27", default-features = false }
