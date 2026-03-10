@@ -299,14 +299,12 @@ fn clean_old_spv_files(shader_configs: &[ShaderConfig]) -> Result<()> {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_file() {
-                if let Some(extension) = path.extension() {
-                    if extension == "spv" {
+            if path.is_file()
+                && let Some(extension) = path.extension()
+                    && extension == "spv" {
                         fs::remove_file(&path)?;
                         total_removed += 1;
                     }
-                }
-            }
         }
     }
 
@@ -332,13 +330,11 @@ fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
         let path = Utf8PathBuf::try_from(entry.path())
             .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in shader file path: {e}"))?;
 
-        if path.is_file() {
-            if let Some(extension) = path.extension() {
-                if extension == "glsl" {
+        if path.is_file()
+            && let Some(extension) = path.extension()
+                && extension == "glsl" {
                     glsl_files.push(path);
                 }
-            }
-        }
     }
 
     Ok(glsl_files)
