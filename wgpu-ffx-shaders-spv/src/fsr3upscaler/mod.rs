@@ -47,7 +47,6 @@ pub enum Wave64 {
     Off,
 }
 
-
 #[repr(align(4))]
 struct Align4<const N: usize>([u8; N]);
 
@@ -120,9 +119,36 @@ pub struct Shaders {
 }
 
 #[inline(always)]
-pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionApplySharpening, fsr3upscaler_option_hdr_color_input: Fsr3upscalerOptionHdrColorInput, fsr3upscaler_option_inverted_depth: Fsr3upscalerOptionInvertedDepth, fsr3upscaler_option_jittered_motion_vectors: Fsr3upscalerOptionJitteredMotionVectors, fsr3upscaler_option_low_resolution_motion_vectors: Fsr3upscalerOptionLowResolutionMotionVectors, fsr3upscaler_option_reproject_use_lanczos_type: Fsr3upscalerOptionReprojectUseLanczosType, half: Half, wave64: Wave64) -> Shaders {
-    match (fsr3upscaler_option_apply_sharpening, fsr3upscaler_option_hdr_color_input, fsr3upscaler_option_inverted_depth, fsr3upscaler_option_jittered_motion_vectors, fsr3upscaler_option_low_resolution_motion_vectors, fsr3upscaler_option_reproject_use_lanczos_type, half, wave64) {
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+pub fn choose_shaders(
+    fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionApplySharpening,
+    fsr3upscaler_option_hdr_color_input: Fsr3upscalerOptionHdrColorInput,
+    fsr3upscaler_option_inverted_depth: Fsr3upscalerOptionInvertedDepth,
+    fsr3upscaler_option_jittered_motion_vectors: Fsr3upscalerOptionJitteredMotionVectors,
+    fsr3upscaler_option_low_resolution_motion_vectors: Fsr3upscalerOptionLowResolutionMotionVectors,
+    fsr3upscaler_option_reproject_use_lanczos_type: Fsr3upscalerOptionReprojectUseLanczosType,
+    half: Half,
+    wave64: Wave64,
+) -> Shaders {
+    match (
+        fsr3upscaler_option_apply_sharpening,
+        fsr3upscaler_option_hdr_color_input,
+        fsr3upscaler_option_inverted_depth,
+        fsr3upscaler_option_jittered_motion_vectors,
+        fsr3upscaler_option_low_resolution_motion_vectors,
+        fsr3upscaler_option_reproject_use_lanczos_type,
+        half,
+        wave64,
+    ) {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_F6535E1A,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -134,7 +160,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0E87CA12,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -146,7 +181,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7D4436F1,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -158,7 +202,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2031688E,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -170,7 +223,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5F1457A0,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -182,7 +244,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_AB946A99,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -194,7 +265,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7D4436F1,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -206,7 +286,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2031688E,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -218,7 +307,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_F6535E1A,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -230,7 +328,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0E87CA12,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -242,7 +349,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7D4436F1,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -254,7 +370,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2031688E,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -266,7 +391,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5F1457A0,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -278,7 +412,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_AB946A99,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -290,7 +433,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7D4436F1,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -302,7 +454,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2031688E,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -314,7 +475,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_D5749892,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -326,7 +496,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_08E5E695,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -338,7 +517,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0B5DC708,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -350,7 +538,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_6037CBCB,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -362,7 +559,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7F49DA97,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -374,7 +580,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_01DDA0BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -386,7 +601,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0B5DC708,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -398,7 +622,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_6037CBCB,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -410,7 +643,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_D5749892,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -422,7 +664,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_08E5E695,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -434,7 +685,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0B5DC708,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -446,7 +706,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_6037CBCB,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -458,7 +727,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_7F49DA97,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -470,7 +748,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_01DDA0BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -482,7 +769,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0B5DC708,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -494,7 +790,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::Off, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::Off,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_6037CBCB,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -506,7 +811,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_E1042F6B,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -518,7 +832,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_90628E33,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -530,7 +853,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2948CB13,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -542,7 +874,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_829697BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -554,7 +895,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_8A50A725,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -566,7 +916,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_D9BF6249,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -578,7 +937,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2948CB13,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -590,7 +958,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_829697BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -602,7 +979,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_E1042F6B,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -614,7 +1000,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_90628E33,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -626,7 +1021,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2948CB13,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -638,7 +1042,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_829697BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -650,7 +1063,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_8A50A725,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -662,7 +1084,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_D9BF6249,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -674,7 +1105,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_2948CB13,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -686,7 +1126,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::Off, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::Off,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_829697BA,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -698,7 +1147,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0F440BD0,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -710,7 +1168,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_9F831AD6,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -722,7 +1189,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5A1A43DF,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -734,7 +1210,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_CC63F1AD,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -746,7 +1231,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_28625914,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -758,7 +1252,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_9F5BB592,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -770,7 +1273,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5A1A43DF,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -782,7 +1294,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::Off, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::Off,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_CC63F1AD,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -794,7 +1315,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_0F440BD0,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -806,7 +1336,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_9F831AD6,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -818,7 +1357,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5A1A43DF,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -830,7 +1378,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::Off, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::Off,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_CC63F1AD,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -842,7 +1399,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_28625914,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -854,7 +1420,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::Off, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::Off,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_9F5BB592,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -866,7 +1441,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::Off, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_5A1A43DF,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,
@@ -878,7 +1462,16 @@ pub fn choose_shaders(fsr3upscaler_option_apply_sharpening: Fsr3upscalerOptionAp
             shading_change: SHADER_5E3ED5E0,
             shading_change_pyramid: SHADER_B63CD97E,
         },
-        (Fsr3upscalerOptionApplySharpening::On, Fsr3upscalerOptionHdrColorInput::On, Fsr3upscalerOptionInvertedDepth::On, Fsr3upscalerOptionJitteredMotionVectors::On, Fsr3upscalerOptionLowResolutionMotionVectors::On, Fsr3upscalerOptionReprojectUseLanczosType::On, Half::Off, Wave64::Off) => Shaders {
+        (
+            Fsr3upscalerOptionApplySharpening::On,
+            Fsr3upscalerOptionHdrColorInput::On,
+            Fsr3upscalerOptionInvertedDepth::On,
+            Fsr3upscalerOptionJitteredMotionVectors::On,
+            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            Fsr3upscalerOptionReprojectUseLanczosType::On,
+            Half::Off,
+            Wave64::Off,
+        ) => Shaders {
             accumulate: SHADER_CC63F1AD,
             autogen_reactive: SHADER_413BEF49,
             debug_view: SHADER_6D34165D,

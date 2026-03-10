@@ -11,6 +11,14 @@ env:
   RUST_BACKTRACE: short
 
 jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: cargo fmt --all -- --check
+
   check:
     name: Check (${{ matrix.os }})
     strategy:

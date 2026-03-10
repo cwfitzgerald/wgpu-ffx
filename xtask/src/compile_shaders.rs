@@ -301,10 +301,11 @@ fn clean_old_spv_files(shader_configs: &[ShaderConfig]) -> Result<()> {
 
             if path.is_file()
                 && let Some(extension) = path.extension()
-                    && extension == "spv" {
-                        fs::remove_file(&path)?;
-                        total_removed += 1;
-                    }
+                && extension == "spv"
+            {
+                fs::remove_file(&path)?;
+                total_removed += 1;
+            }
         }
     }
 
@@ -332,9 +333,10 @@ fn find_glsl_files(shader_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
 
         if path.is_file()
             && let Some(extension) = path.extension()
-                && extension == "glsl" {
-                    glsl_files.push(path);
-                }
+            && extension == "glsl"
+        {
+            glsl_files.push(path);
+        }
     }
 
     Ok(glsl_files)
