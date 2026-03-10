@@ -14,5 +14,6 @@ wgpu = { workspace = true, features = ["spirv", "wgsl"] }
 wgpu-ffx-shaders-spv.workspace = true
 
 pollster.workspace = true
+
 [dev-dependencies]
-wgpu = { workspace = true, features = ["vulkan", "metal"] }
+wgpu = { workspace = true, features = ["vulkan", "metal", "dx12"] }

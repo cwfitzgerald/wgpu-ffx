@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 mod compile_shaders;
+mod install_warp;
 mod vendor;
 
 const HELP: &str = r#"xtask
@@ -13,6 +14,7 @@ OPTIONS:
 
 SUBCOMMANDS:
     compile-shaders    Compile shaders for the project
+    install-warp       Install WARP software renderer (Windows only)
     vendor             Download and extract FidelityFX SDK
 "#;
 
@@ -39,6 +41,7 @@ fn try_main() -> Result<()> {
 
     match subcommand.as_str() {
         "compile-shaders" => compile_shaders::compile_shaders(pargs)?,
+        "install-warp" => install_warp::run_install_warp(pargs)?,
         "vendor" => vendor::vendor(pargs)?,
         cmd => {
             eprintln!("Unknown subcommand: {cmd}");

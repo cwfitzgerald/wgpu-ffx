@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [trunk]
+  pull_request:
+
+env:
+  CARGO_INCREMENTAL: false
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [
+            ubuntu-latest,
+            # macos-latest, Mac support pending
+            # windows-latest, Currently requires passthrough
+          ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: (Linux) Install Mesa
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/install-mesa
+        with:
+          target-dir: target/debug
+
+      - name: (Windows) Install WARP
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/install-warp
+        with:
+          target-dir: target/debug
+
+      - run: cargo nextest run --workspace
+
+  doctest:
+    name: Doctest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: (Linux) Install Mesa
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/install-mesa
+        with:
+          target-dir: target/debug
+
+      - name: (Windows) Install WARP
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/install-warp
+        with:
+          target-dir: target/debug
+
+      - run: cargo test --workspace --doc
