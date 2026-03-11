@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Pre-compiled SPIR-V shaders for wgpu-ffx"
+readme = "../README.md"
 
 [lints.clippy]
 too_many_arguments = "allow"

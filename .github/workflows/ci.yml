@@ -9,7 +9,10 @@ env:
   CARGO_INCREMENTAL: false
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
+  RUSTFLAGS: "-Dwarnings"
+  RUSTDOCFLAGS: "-Dwarnings"
   CI_RUST_VERSION: "1.94"
+  CI_RUST_MSRV: "1.92"
 
 jobs:
   fmt:
@@ -18,8 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/install-rust
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
         with:
+          version: ${{ env.CI_RUST_VERSION }}
           components: rustfmt
 
       - run: cargo fmt --all -- --check
@@ -34,15 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/install-rust
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
         with:
+          version: ${{ env.CI_RUST_VERSION }}
           components: clippy
 
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-features --all-targets
 
       - run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -58,10 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/install-rust
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
+        with:
+          version: ${{ env.CI_RUST_VERSION }}
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@cargo-nextest
 
       - name: (Linux) Install Mesa
         if: runner.os == 'Linux'
@@ -87,7 +92,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/install-rust
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
+        with:
+          version: ${{ env.CI_RUST_VERSION }}
 
       - name: (Linux) Install Mesa
         if: runner.os == 'Linux'
@@ -102,3 +109,34 @@ jobs:
           target-dir: target/debug
 
       - run: cargo test --workspace --doc
+
+  deny:
+    name: Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
+        with:
+          version: ${{ env.CI_RUST_VERSION }}
+
+      - uses: taiki-e/install-action@cargo-deny
+
+      - run: cargo deny --all-features check
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+      RUSTDOCFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cwfitzgerald/repo-common/.github/actions/install-rust@trunk
+        with:
+          version: ${{ env.CI_RUST_MSRV }}
+
+      - run: cargo check --workspace
+
+      - run: cargo check --workspace --no-default-features
