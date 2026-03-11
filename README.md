@@ -17,7 +17,7 @@ be used at a 1:1 ratio for temporal anti-aliasing (TAA) without upscaling.
 
 ## Requirements
 
-- **wgpu 27**
+- **wgpu 28**
 
 ## Usage
 
@@ -89,6 +89,11 @@ Requires glslc from the VulkanSDK.
 cargo xtask vendor           # fetch upstream FidelityFX shader sources
 cargo xtask compile-shaders  # compile to SPIR-V (requires glslc)
 ```
+
+## Minimum Supported Rust Version (MSRV)
+
+The MSRV is **1.92**. MSRV bumps are considered breaking changes and will be
+accompanied by a minor version bump.
 
 ## License
 

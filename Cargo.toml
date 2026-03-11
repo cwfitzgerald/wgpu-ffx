@@ -6,7 +6,11 @@ members = ["wgpu-ffx", "wgpu-ffx-shaders-spv", "xtask"]
 authors = ["wgpu-ffx developers", "Advanced Micro Devices, Inc."]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.92"
 license = "MIT"
+repository = "https://github.com/cwfitzgerald/wgpu-ffx"
+keywords = ["wgpu", "fsr", "fidelityfx", "upscaling", "graphics"]
+categories = ["graphics", "rendering"]
 
 [workspace.lints]
 
