@@ -11,7 +11,6 @@ be used at a 1:1 ratio for temporal anti-aliasing (TAA) without upscaling.
 
 **Early / experimental.** Known limitations:
 
-- RCAS sharpening pass is not yet wired up
 - Shader permutation selection is not yet driven by flags
 - `GenerateReactive` pass is unimplemented
 

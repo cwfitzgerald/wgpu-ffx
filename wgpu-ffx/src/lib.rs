@@ -65,6 +65,7 @@ pub struct FsrContext {
     pass_prepare_reactivity: pass::FsrPass,
     pass_shading_change: pass::FsrPass,
     pass_accumulate: pass::FsrPass,
+    pass_accumulate_sharpen: pass::FsrPass,
     pass_rcas: pass::FsrPass,
     pass_luma_pyramid: pass::FsrPass,
     // pass_generate_reactive: pass::FsrPass,
@@ -160,6 +161,12 @@ impl FsrContext {
             info.flags,
             &shaders,
         );
+        let pass_accumulate_sharpen = pass::FsrPass::new(
+            &info.device,
+            pass::FsrPassKind::AccumulateSharpen,
+            info.flags,
+            &shaders,
+        );
         let pass_rcas =
             pass::FsrPass::new(&info.device, pass::FsrPassKind::Rcas, info.flags, &shaders);
         let pass_luma_pyramid = pass::FsrPass::new(
@@ -202,6 +209,7 @@ impl FsrContext {
             pass_prepare_reactivity,
             pass_shading_change,
             pass_accumulate,
+            pass_accumulate_sharpen,
             pass_rcas,
             pass_luma_pyramid,
             // pass_generate_reactive,
@@ -595,7 +603,12 @@ impl FsrContext {
             workgroups_src_x,
             workgroups_src_y,
         );
-        self.pass_accumulate.dispatch(
+        let accumulate_pass = if info.enable_sharpening {
+            &self.pass_accumulate_sharpen
+        } else {
+            &self.pass_accumulate
+        };
+        accumulate_pass.dispatch(
             &self.device,
             &mut compute_pass,
             &view.resources,
@@ -605,18 +618,23 @@ impl FsrContext {
             workgroups_dst_x,
             workgroups_dst_y,
         );
-        // if let Some((workgroups_rcas_x, workgroups_rcas_y)) = rcas_workgroups {
-        //     self.pass_rcas.dispatch(
-        //         &self.device,
-        //         &mut compute_pass,
-        //         &view.resources,
-        //         info,
-        //         self.flags,
-        //         view.frame_kind,
-        //         workgroups_rcas_x,
-        //         workgroups_rcas_y,
-        //     );
-        // }
+        if info.enable_sharpening {
+            let thread_group_work_region_dim_rcas = 16;
+            let workgroups_rcas_x =
+                info.upscale_size[0].div_ceil(thread_group_work_region_dim_rcas);
+            let workgroups_rcas_y =
+                info.upscale_size[1].div_ceil(thread_group_work_region_dim_rcas);
+            self.pass_rcas.dispatch(
+                &self.device,
+                &mut compute_pass,
+                &view.resources,
+                info,
+                self.flags,
+                view.frame_kind,
+                workgroups_rcas_x,
+                workgroups_rcas_y,
+            );
+        }
         if info.flags.contains(FsrDispatchFlags::DRAW_DEBUG_VIEW) {
             self.pass_debug_view.dispatch(
                 &self.device,

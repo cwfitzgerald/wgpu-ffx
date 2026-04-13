@@ -137,6 +137,9 @@ pub(crate) enum FsrPassKind {
     LumaInstability,
     /// A pass which performs upscaling.
     Accumulate,
+    /// A pass which performs upscaling, without writing to the output color target.
+    /// Used when RCAS sharpening is enabled — RCAS writes the final output instead.
+    AccumulateSharpen,
     /// A pass which performs sharpening.
     Rcas,
     /// A pass which draws some internal resources, for debugging purposes
@@ -155,6 +158,7 @@ impl FsrPassKind {
             FsrPassKind::PrepareReactivity => "FSR3 Prepare Reactivity",
             FsrPassKind::LumaInstability => "FSR3 Luma Instability",
             FsrPassKind::Accumulate => "FSR3 Accumulate",
+            FsrPassKind::AccumulateSharpen => "FSR3 Accumulate Sharpen",
             FsrPassKind::Rcas => "FSR3 RCAS",
             FsrPassKind::DebugView => "FSR3 Debug View",
             FsrPassKind::GenerateReactive => "FSR3 Generate Reactive",
@@ -170,6 +174,7 @@ impl FsrPassKind {
             FsrPassKind::PrepareReactivity => shaders.prepare_reactivity,
             FsrPassKind::LumaInstability => shaders.luma_instability,
             FsrPassKind::Accumulate => shaders.accumulate,
+            FsrPassKind::AccumulateSharpen => shaders.accumulate_sharpen,
             FsrPassKind::Rcas => shaders.rcas,
             FsrPassKind::DebugView => shaders.debug_view,
             FsrPassKind::GenerateReactive => todo!(),
@@ -188,7 +193,7 @@ impl FsrPassKind {
 
         #[rustfmt::skip]
         let mut ret = match self {
-            FsrPassKind::Accumulate => vec![
+            FsrPassKind::Accumulate | FsrPassKind::AccumulateSharpen => vec![
                 ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
                 ResourceAccess { name: DilatedReactiveMasks, access_type: Srv, desc: None },
                 ResourceAccess { name: motion_vectors, access_type: Srv, desc: None },
