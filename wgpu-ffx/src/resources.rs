@@ -39,6 +39,10 @@ pub(crate) enum FsrResourceName {
     LumaHistory,
     SpdAtomicCount,
     DilatedReactiveMasks,
+    /// The current frame's internal upscaled color (same physical texture as
+    /// `InternalUpscaled` UAV). Used by RCAS to read the result that
+    /// `AccumulateSharpen` just wrote, rather than the previous frame's buffer.
+    RcasInput,
     Lanczos2Lut,
     DefaultReactivityMask,
     DefaultExposure,
@@ -77,7 +81,9 @@ impl FsrResourceName {
             }
             FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::NewLocks => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::InternalUpscaled => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::InternalUpscaled | FsrResourceName::RcasInput => {
+                wgpu::TextureFormat::Rgba16Float
+            }
             FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
             FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
             FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
@@ -704,6 +710,15 @@ impl FsrResources {
                             self.internal_upscaled_1.create_view(&descriptor),
                         )
                     }
+                }
+            }
+            FsrResourceName::RcasInput => {
+                // RCAS reads the CURRENT frame's upscaled data — the same
+                // physical texture that AccumulateSharpen wrote to as UAV.
+                if kind == FrameKind::Odd {
+                    OwnedBindingResource::View(self.internal_upscaled_1.create_view(&descriptor))
+                } else {
+                    OwnedBindingResource::View(self.internal_upscaled_2.create_view(&descriptor))
                 }
             }
             FsrResourceName::SpdMips => {

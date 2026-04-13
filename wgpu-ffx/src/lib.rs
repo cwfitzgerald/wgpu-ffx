@@ -300,7 +300,12 @@ impl FsrContext {
 
     /// Validate dispatch parameters for correctness.
     fn check(&self, view: &FsrView, info: &FsrDispatchInfo) -> Result<(), FsrDispatchError> {
-        validation::check_dispatch(info, self.flags, view.max_render_size)
+        validation::check_dispatch(
+            info,
+            self.flags,
+            view.max_render_size,
+            view.max_upscale_size,
+        )
     }
 
     /// Record the FSR3 upscaling compute passes into the provided command encoder.

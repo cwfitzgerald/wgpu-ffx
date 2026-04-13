@@ -14,9 +14,7 @@ pub enum FsrDispatchError {
     #[error("Jitter offset [{x}, {y}] is outside the expected range [-1.0, 1.0]")]
     JitterOffsetOutOfRange { x: f32, y: f32 },
 
-    #[error(
-        "Motion vector scale [{x}, {y}] is greater than max render size [{max_width}, {max_height}]"
-    )]
+    #[error("Motion vector scale [{x}, {y}] is greater than max size [{max_width}, {max_height}]")]
     MotionVectorScaleTooLarge {
         x: f32,
         y: f32,
@@ -39,6 +37,19 @@ pub enum FsrDispatchError {
 
     #[error("Render size contains zero dimension: [{width}, {height}]")]
     RenderSizeZero { width: u32, height: u32 },
+
+    #[error(
+        "Upscale size [{width}, {height}] is greater than context max upscale size [{max_width}, {max_height}]"
+    )]
+    UpscaleSizeTooLarge {
+        width: u32,
+        height: u32,
+        max_width: u32,
+        max_height: u32,
+    },
+
+    #[error("Upscale size contains zero dimension: [{width}, {height}]")]
+    UpscaleSizeZero { width: u32, height: u32 },
 
     #[error("Sharpness {0} is outside the expected range [0.0, 1.0]")]
     SharpnessOutOfRange(f32),
@@ -96,6 +107,7 @@ pub fn check_dispatch(
     info: &FsrDispatchInfo,
     flags: FsrContextFlags,
     max_render_size: [u32; 2],
+    max_upscale_size: [u32; 2],
 ) -> Result<(), FsrDispatchError> {
     // Check exposure configuration
     if info.exposure.is_some() && flags.contains(FsrContextFlags::AUTO_EXPOSURE) {
@@ -110,15 +122,20 @@ pub fn check_dispatch(
         });
     }
 
-    // Check motion vector scale
-    if info.motion_vector_scale[0] > max_render_size[0] as f32
-        || info.motion_vector_scale[1] > max_render_size[1] as f32
+    // Check motion vector scale — display-res MVs are scaled against upscale size
+    let mv_max_size = if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
+        max_upscale_size
+    } else {
+        max_render_size
+    };
+    if info.motion_vector_scale[0] > mv_max_size[0] as f32
+        || info.motion_vector_scale[1] > mv_max_size[1] as f32
     {
         return Err(FsrDispatchError::MotionVectorScaleTooLarge {
             x: info.motion_vector_scale[0],
             y: info.motion_vector_scale[1],
-            max_width: max_render_size[0],
-            max_height: max_render_size[1],
+            max_width: mv_max_size[0],
+            max_height: mv_max_size[1],
         });
     }
     if info.motion_vector_scale[0] == 0.0 || info.motion_vector_scale[1] == 0.0 {
@@ -141,6 +158,22 @@ pub fn check_dispatch(
         return Err(FsrDispatchError::RenderSizeZero {
             width: info.render_size[0],
             height: info.render_size[1],
+        });
+    }
+
+    // Check upscale size
+    if info.upscale_size[0] > max_upscale_size[0] || info.upscale_size[1] > max_upscale_size[1] {
+        return Err(FsrDispatchError::UpscaleSizeTooLarge {
+            width: info.upscale_size[0],
+            height: info.upscale_size[1],
+            max_width: max_upscale_size[0],
+            max_height: max_upscale_size[1],
+        });
+    }
+    if info.upscale_size[0] == 0 || info.upscale_size[1] == 0 {
+        return Err(FsrDispatchError::UpscaleSizeZero {
+            width: info.upscale_size[0],
+            height: info.upscale_size[1],
         });
     }
 

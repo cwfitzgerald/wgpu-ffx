@@ -327,7 +327,7 @@ impl FsrPassKind {
             ],
             FsrPassKind::Rcas => vec![
                 ResourceAccess { name: InputExposure, access_type: Srv, desc: None },
-                ResourceAccess { name: InternalUpscaled, access_type: Srv, desc: None },
+                ResourceAccess { name: RcasInput, access_type: Srv, desc: None },
                 ResourceAccess { name: OutputColor, access_type: Uav, desc: None },
                 ResourceAccess { name: Constants, access_type: Srv, desc: None },
             ],
