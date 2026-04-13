@@ -921,9 +921,9 @@ impl FrameKind {
 
 #[test]
 fn fsr_smoke() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Failed to find an appropriate adapter");
@@ -949,9 +949,9 @@ fn fsr_smoke() {
 #[test]
 fn fsr_dispatch_smoke() {
     // Setup device and queue
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Failed to find an appropriate adapter");

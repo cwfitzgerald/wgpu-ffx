@@ -22,20 +22,19 @@ impl FsrPass {
     ) -> Self {
         let shader_module = if device
             .features()
-            .contains(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS)
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
         {
             unsafe {
                 device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
-                    entry_point: String::new(),
                     label: Some(kind.label()),
                     num_workgroups: (0, 0, 0),
-                    runtime_checks: wgpu::ShaderRuntimeChecks::unchecked(),
                     spirv: Some(Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders)))),
                     dxil: None,
                     msl: None,
                     hlsl: None,
                     glsl: None,
                     wgsl: None,
+                    metallib: None,
                 })
             }
         } else {
@@ -62,7 +61,7 @@ impl FsrPass {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("{} Pipeline Layout", kind.label())),
-            bind_group_layouts: &[&bgl],
+            bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
 
