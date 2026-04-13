@@ -17,7 +17,7 @@
 //!
 //! Dispatch returns [`FsrDispatchError`] if any parameters fail validation.
 
-#![allow(dead_code)]
+#![allow(dead_code)] // TODO: remove once GenerateReactive and DebugView are wired up
 
 mod clear_buffer;
 mod constants;
@@ -96,12 +96,30 @@ impl FsrContext {
 
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
+        let flags = info.flags;
         let shaders = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
-            Fsr3upscalerOptionApplySharpening::Off,
-            Fsr3upscalerOptionHdrColorInput::On,
-            Fsr3upscalerOptionInvertedDepth::On,
-            Fsr3upscalerOptionJitteredMotionVectors::On,
-            Fsr3upscalerOptionLowResolutionMotionVectors::On,
+            if flags.contains(FsrContextFlags::HIGH_DYNAMIC_RANGE) {
+                Fsr3upscalerOptionHdrColorInput::On
+            } else {
+                Fsr3upscalerOptionHdrColorInput::Off
+            },
+            if flags.contains(FsrContextFlags::DEPTH_INVERTED) {
+                Fsr3upscalerOptionInvertedDepth::On
+            } else {
+                Fsr3upscalerOptionInvertedDepth::Off
+            },
+            if flags.contains(FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION) {
+                Fsr3upscalerOptionJitteredMotionVectors::On
+            } else {
+                Fsr3upscalerOptionJitteredMotionVectors::Off
+            },
+            if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
+                Fsr3upscalerOptionLowResolutionMotionVectors::Off
+            } else {
+                Fsr3upscalerOptionLowResolutionMotionVectors::On
+            },
+            // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
+            // since we don't query this from wgpu yet, default to reference (Off).
             Fsr3upscalerOptionReprojectUseLanczosType::Off,
             Half::Off,
             Wave64::Off,
@@ -332,6 +350,8 @@ impl FsrContext {
                 (self.previous_jitter_offset[i] - info.jitter_offset[i])
                     / motion_vectors_target_size[i] as f32
             });
+
+            self.previous_jitter_offset = info.jitter_offset;
         }
 
         let jitter_phase_count =
@@ -374,16 +394,6 @@ impl FsrContext {
         let workgroups_spd_x = info.render_size[0].div_ceil(spd_thread_group_work_region_dim);
         let workgroups_spd_y = info.render_size[1].div_ceil(spd_thread_group_work_region_dim);
 
-        let _rcas_workgroups = if info.enable_sharpening {
-            let rcas_thread_group_work_region_dim = 16;
-            Some((
-                info.upscale_size[0].div_ceil(rcas_thread_group_work_region_dim),
-                info.upscale_size[1].div_ceil(rcas_thread_group_work_region_dim),
-            ))
-        } else {
-            None
-        };
-
         let error_scope_guard = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
@@ -423,7 +433,7 @@ impl FsrContext {
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("exposure_staging_buffer"),
                         contents: bytemuck::cast_slice(&clear_values_exposure),
-                        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+                        usage: wgpu::BufferUsages::COPY_SRC,
                     });
 
             info.encoder.copy_buffer_to_texture(
@@ -482,7 +492,7 @@ impl FsrContext {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("FsrContext::constants_staging_buffer"),
                     contents: bytemuck::bytes_of(&self.constants),
-                    usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+                    usage: wgpu::BufferUsages::COPY_SRC,
                 });
 
         info.encoder.copy_buffer_to_buffer(
@@ -653,8 +663,6 @@ bitflags::bitflags! {
 /// for a single upscaling frame. See the field documentation for format and
 /// size requirements.
 pub struct FsrDispatchInfo<'a> {
-    /// The wgpu queue to use for submitting uploads.
-    pub queue: wgpu::Queue,
     /// The wgpu CommandEncoder to record FSR3 rendering commands into.
     pub encoder: &'a mut wgpu::CommandEncoder,
 
@@ -907,7 +915,6 @@ fn fsr_dispatch_smoke() {
 
         // Create dispatch info with valid parameters
         let mut dispatch_info = FsrDispatchInfo {
-            queue: queue.clone(),
             encoder: &mut encoder,
             color: color.clone(),
             depth: depth.clone(),

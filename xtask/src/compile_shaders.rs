@@ -61,6 +61,16 @@ struct ShaderPathConfig {
     subdirectory: String,
 }
 
+/// Configuration for a field permutation that generates extra struct fields
+/// instead of extra match arms.
+#[derive(Debug, Deserialize)]
+struct FieldPermutationConfig {
+    /// The possible values for this define (e.g., [0, 1])
+    values: Vec<toml::Value>,
+    /// Suffix appended to struct field names for the "on" (value=1) variant
+    suffix: String,
+}
+
 /// Configuration for shader permutation generation from perm.toml files
 #[derive(Debug, Deserialize)]
 struct ShaderPermutationConfig {
@@ -69,6 +79,9 @@ struct ShaderPermutationConfig {
     base: IndexMap<String, toml::Value>,
     /// Map of define names to their possible values for permutation generation
     permutations: IndexMap<String, Vec<toml::Value>>,
+    /// Permutations that produce additional struct fields rather than match arms
+    #[serde(default)]
+    field_permutations: IndexMap<String, FieldPermutationConfig>,
 }
 
 /// A shader configuration with its source and output locations
@@ -349,14 +362,20 @@ fn generate_all_permutations(
 ) -> Result<Vec<ShaderPermutation>> {
     let mut all_permutations = Vec::new();
 
-    // Generate the cartesian product of all permutation values
-    let permutation_keys: Vec<&String> = config.permutations.keys().collect();
-    let permutation_values: Vec<&Vec<toml::Value>> = permutation_keys
+    // Collect all permutation keys/values: regular permutations first, then field permutations.
+    // Both participate in the cartesian product for compilation.
+    let mut all_keys: Vec<&String> = config.permutations.keys().collect();
+    let mut all_values: Vec<&Vec<toml::Value>> = all_keys
         .iter()
         .map(|key| config.permutations.get(*key).unwrap())
         .collect();
 
-    let combinations = generate_cartesian_product(&permutation_values);
+    for (key, field_config) in &config.field_permutations {
+        all_keys.push(key);
+        all_values.push(&field_config.values);
+    }
+
+    let combinations = generate_cartesian_product(&all_values);
 
     for shader_file in glsl_files {
         for combination in &combinations {
@@ -368,14 +387,15 @@ fn generate_all_permutations(
                 defines.push((key.clone(), value_str));
             }
 
-            // Add permutation defines
+            // Add all permutation defines (regular + field)
             for (i, value) in combination.iter().enumerate() {
-                let key = permutation_keys[i].clone();
+                let key = all_keys[i].clone();
                 let value_str = toml_value_to_string(value);
                 defines.push((key, value_str));
             }
 
-            // Generate permutation ID for tracking
+            // Generate permutation ID for tracking.
+            // Regular permutation values come first, then field permutation values.
             let mut permutation_id = shader_file.file_stem().unwrap().to_string();
             for value in combination {
                 permutation_id.push('_');
@@ -672,6 +692,7 @@ fn generate_rust_code(
 }
 
 fn generate_permutation_enums(code: &mut String, config: &ShaderPermutationConfig) -> Result<()> {
+    // Only generate enums for regular permutations, not field permutations
     for (param_name, values) in &config.permutations {
         let enum_name = shader_param_to_enum_name(param_name);
 
@@ -746,7 +767,7 @@ include_shaders! {
 
 fn generate_shader_struct(
     code: &mut String,
-    _shader_config: &ShaderConfig,
+    shader_config: &ShaderConfig,
     results: &[&CompilationResult],
 ) -> Result<()> {
     // Get unique shader names
@@ -764,6 +785,14 @@ fn generate_shader_struct(
     let mut shader_names: Vec<_> = shader_names.into_iter().collect();
     shader_names.sort();
 
+    // Collect field permutation suffixes
+    let field_perm_suffixes: Vec<&str> = shader_config
+        .config
+        .field_permutations
+        .values()
+        .map(|fp| fp.suffix.as_str())
+        .collect();
+
     code.push_str("#[derive(Debug, Clone)]\n");
     code.push_str("pub struct Shaders {\n");
 
@@ -772,7 +801,12 @@ fn generate_shader_struct(
         let field_name = shader_name
             .replace("ffx_fsr3upscaler_", "")
             .replace("_pass", "");
+        // Base field (field permutation value = "off" / 0)
         code.push_str(&format!("    pub {field_name}: &'static [u8],\n"));
+        // Additional fields for each field permutation suffix
+        for suffix in &field_perm_suffixes {
+            code.push_str(&format!("    pub {field_name}_{suffix}: &'static [u8],\n"));
+        }
     }
 
     code.push_str("}\n\n");
@@ -813,6 +847,7 @@ fn generate_choice_function_signature(code: &mut String, param_info: &[ParamInfo
 fn generate_choice_function_matches(
     code: &mut String,
     param_info: &[ParamInfo],
+    field_perms: &[(String, &FieldPermutationConfig)],
     result_lookup: &IndexMap<String, &CompilationResult>,
     shader_names: &[String],
 ) {
@@ -825,8 +860,29 @@ fn generate_choice_function_matches(
     }
     code.push_str(") {\n");
 
-    // Generate all possible enum combinations and map them to shaders
+    // Generate all possible enum combinations for regular permutations
     let combinations = generate_all_enum_combinations(param_info);
+
+    // Build field permutation value sets: [(off_value, suffix_or_none), ...]
+    // For each field permutation, generate the list of (toml_value_string, field_suffix_or_none)
+    let field_perm_variants: Vec<Vec<(String, Option<&str>)>> = field_perms
+        .iter()
+        .map(|(_, fp)| {
+            fp.values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let val_str = toml_value_to_string(v);
+                    let suffix = if i == 0 {
+                        None
+                    } else {
+                        Some(fp.suffix.as_str())
+                    };
+                    (val_str, suffix)
+                })
+                .collect()
+        })
+        .collect();
 
     for combination in combinations {
         // Convert enum combination to TOML values for lookup
@@ -850,25 +906,42 @@ fn generate_choice_function_matches(
         }
         code.push_str(") => Shaders {\n");
 
-        // Generate shader assignments for this permutation
+        // Generate shader assignments for this permutation.
+        // For each shader, emit the base field and suffixed fields for field permutations.
         for shader_name in shader_names {
-            let field_name = shader_name
+            let base_field_name = shader_name
                 .replace("ffx_fsr3upscaler_", "")
                 .replace("_pass", "");
 
-            // Build permutation ID to look up the result
-            let mut permutation_id = shader_name.clone();
-            for value in &lookup_values {
-                permutation_id.push('_');
-                permutation_id.push_str(value);
-            }
+            // Generate assignments for each field permutation variant
+            let field_perm_combos = generate_field_perm_combos(&field_perm_variants);
 
-            if let Some(result) = result_lookup.get(&permutation_id) {
-                let hash_short = &result.content_hash[..HASH_TRUNCATE_LEN].to_uppercase();
-                code.push_str(&format!("            {field_name}: SHADER_{hash_short},\n"));
-            } else {
-                // This shouldn't happen, but provide a fallback
-                code.push_str(&format!("            {field_name}: &[],\n"));
+            for field_combo in &field_perm_combos {
+                // Build the permutation ID: base lookup values + field permutation values
+                let mut permutation_id = shader_name.clone();
+                for value in &lookup_values {
+                    permutation_id.push('_');
+                    permutation_id.push_str(value);
+                }
+                for (val_str, _) in field_combo {
+                    permutation_id.push('_');
+                    permutation_id.push_str(val_str);
+                }
+
+                // Determine the field name (base or suffixed)
+                let field_name = if let Some(suffix) = field_combo.iter().find_map(|(_, s)| *s) {
+                    format!("{base_field_name}_{suffix}")
+                } else {
+                    base_field_name.clone()
+                };
+
+                if let Some(result) = result_lookup.get(&permutation_id) {
+                    let hash_short = &result.content_hash[..HASH_TRUNCATE_LEN].to_uppercase();
+                    code.push_str(&format!("            {field_name}: SHADER_{hash_short},\n"));
+                } else {
+                    // This shouldn't happen, but provide a fallback
+                    code.push_str(&format!("            {field_name}: &[],\n"));
+                }
             }
         }
 
@@ -877,6 +950,30 @@ fn generate_choice_function_matches(
 
     code.push_str("    }\n");
     code.push_str("}\n");
+}
+
+/// Generate all combinations of field permutation values.
+/// Each combination is a Vec of (value_string, Option<suffix>).
+fn generate_field_perm_combos<'a>(
+    variants: &'a [Vec<(String, Option<&'a str>)>],
+) -> Vec<Vec<&'a (String, Option<&'a str>)>> {
+    if variants.is_empty() {
+        return vec![vec![]];
+    }
+
+    let mut result: Vec<Vec<&(String, Option<&str>)>> = vec![vec![]];
+    for variant_set in variants {
+        let mut new_result = Vec::new();
+        for combo in &result {
+            for variant in variant_set {
+                let mut new_combo = combo.clone();
+                new_combo.push(variant);
+                new_result.push(new_combo);
+            }
+        }
+        result = new_result;
+    }
+    result
 }
 
 struct ParamInfo {
@@ -897,7 +994,7 @@ fn generate_choice_function(
         .map(|r| (r.permutation_id.clone(), *r))
         .collect();
 
-    // Get parameter info for function signature
+    // Get parameter info for function signature (regular permutations only)
     let mut param_info = Vec::with_capacity(shader_config.config.permutations.len());
     for (param_name, values) in &shader_config.config.permutations {
         let enum_name = shader_param_to_enum_name(param_name);
@@ -910,6 +1007,14 @@ fn generate_choice_function(
         });
     }
 
+    // Collect field permutations
+    let field_perms: Vec<(String, &FieldPermutationConfig)> = shader_config
+        .config
+        .field_permutations
+        .iter()
+        .map(|(k, v)| (k.clone(), v))
+        .collect();
+
     // Get all unique shader names from results
     let shader_names = extract_shader_names(results);
 
@@ -917,7 +1022,13 @@ fn generate_choice_function(
     generate_choice_function_signature(code, &param_info);
 
     // Generate match patterns and shader assignments
-    generate_choice_function_matches(code, &param_info, &result_lookup, &shader_names);
+    generate_choice_function_matches(
+        code,
+        &param_info,
+        &field_perms,
+        &result_lookup,
+        &shader_names,
+    );
 
     Ok(())
 }

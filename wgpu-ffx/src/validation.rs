@@ -86,6 +86,9 @@ pub enum FsrDispatchError {
         "Camera vertical FOV angle is {0} radians, which is greater than 180 degrees (π radians)"
     )]
     CameraFovTooHigh(f32),
+
+    #[error("RCAS sharpening pass is not yet implemented")]
+    SharpeningNotImplemented,
 }
 
 /// Validate dispatch parameters for correctness.
@@ -189,7 +192,7 @@ pub fn check_dispatch(
                 camera_far: info.camera_far,
             });
         }
-        if infinite_depth && (info.camera_far != f32::MAX && info.camera_near != f32::INFINITY) {
+        if infinite_depth && (info.camera_far != f32::MAX && info.camera_far != f32::INFINITY) {
             return Err(FsrDispatchError::InfiniteDepthFarNotMax {
                 camera_far: info.camera_far,
             });
@@ -199,6 +202,11 @@ pub fn check_dispatch(
                 camera_near: info.camera_near,
             });
         }
+    }
+
+    // Check sharpening support
+    if info.enable_sharpening {
+        return Err(FsrDispatchError::SharpeningNotImplemented);
     }
 
     // Check camera FOV
