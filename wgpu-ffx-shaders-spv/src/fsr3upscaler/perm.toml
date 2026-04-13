@@ -1,5 +1,7 @@
 [path]
 subdirectory = "fsr3upscaler"
+prefix = "ffx_fsr3upscaler_"
+suffix = "_pass"
 
 [base]
 FFX_GPU = 1
