@@ -427,10 +427,10 @@ impl FsrContext {
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
             let zeroed_resources = [
-                // We always clear the SRV accumulation view here
+                // We always clear the previous accumulation view here
                 // as we are clearing what we're _reading_ from.
                 ResourceAccess {
-                    name: FsrResourceName::Accumulation,
+                    name: FsrResourceName::AccumulationPrevious,
                     access_type: resources::AccessType::Srv,
                     desc: None,
                 },

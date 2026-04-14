@@ -4,6 +4,41 @@ use crate::{FrameKind, pass::ResourceAccess};
 
 use super::FsrDispatchInfo;
 
+/// A pair of textures used for temporal double-buffering.
+///
+/// One texture holds the current frame's data (write target), while the other
+/// holds the previous frame's data (read source). Which physical texture is
+/// "current" flips each frame based on [`FrameKind`].
+pub(crate) struct DoubleBuffered {
+    current_on_even: wgpu::Texture,
+    current_on_odd: wgpu::Texture,
+}
+
+impl DoubleBuffered {
+    fn new(current_on_even: wgpu::Texture, current_on_odd: wgpu::Texture) -> Self {
+        Self {
+            current_on_even,
+            current_on_odd,
+        }
+    }
+
+    /// The texture being written to this frame.
+    pub fn current(&self, kind: FrameKind) -> &wgpu::Texture {
+        match kind {
+            FrameKind::Even => &self.current_on_even,
+            FrameKind::Odd => &self.current_on_odd,
+        }
+    }
+
+    /// The texture that was written to last frame (read source).
+    pub fn previous(&self, kind: FrameKind) -> &wgpu::Texture {
+        match kind {
+            FrameKind::Even => &self.current_on_odd,
+            FrameKind::Odd => &self.current_on_even,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AccessType {
     Srv,
@@ -26,23 +61,31 @@ pub(crate) enum FsrResourceName {
 
     Constants,
 
-    Accumulation,
+    /// Current frame's accumulation (write target).
+    AccumulationCurrent,
+    /// Previous frame's accumulation (read source).
+    AccumulationPrevious,
+    /// Current frame's luma.
     Luma,
+    /// Previous frame's luma.
     PreviousLuma,
     LumaInstability,
     ShadingChange,
     NewLocks,
-    InternalUpscaled,
+    /// Current frame's internal upscaled color (write target for Accumulate,
+    /// read source for RCAS and DebugView).
+    InternalUpscaledCurrent,
+    /// Previous frame's internal upscaled color (read source for Accumulate).
+    InternalUpscaledPrevious,
     SpdMips,
     FarthestDepth,
     FarthestDepthMip1,
-    LumaHistory,
+    /// Current frame's luma history (write target).
+    LumaHistoryCurrent,
+    /// Previous frame's luma history (read source).
+    LumaHistoryPrevious,
     SpdAtomicCount,
     DilatedReactiveMasks,
-    /// The current frame's internal upscaled color (same physical texture as
-    /// `InternalUpscaled` UAV). Used by RCAS to read the result that
-    /// `AccumulateSharpen` just wrote, rather than the previous frame's buffer.
-    RcasInput,
     Lanczos2Lut,
     DefaultReactivityMask,
     DefaultExposure,
@@ -74,19 +117,22 @@ impl FsrResourceName {
                 panic!("Constants is a buffer")
             }
 
-            FsrResourceName::Accumulation => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::AccumulationCurrent | FsrResourceName::AccumulationPrevious => {
+                wgpu::TextureFormat::R8Unorm
+            }
             FsrResourceName::Luma | FsrResourceName::PreviousLuma => wgpu::TextureFormat::R16Float,
             FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
                 wgpu::TextureFormat::R16Float
             }
             FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::NewLocks => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::InternalUpscaled | FsrResourceName::RcasInput => {
-                wgpu::TextureFormat::Rgba16Float
-            }
+            FsrResourceName::InternalUpscaledCurrent
+            | FsrResourceName::InternalUpscaledPrevious => wgpu::TextureFormat::Rgba16Float,
             FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
             FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
-            FsrResourceName::LumaHistory => wgpu::TextureFormat::Rgba16Float,
+            FsrResourceName::LumaHistoryCurrent | FsrResourceName::LumaHistoryPrevious => {
+                wgpu::TextureFormat::Rgba16Float
+            }
             FsrResourceName::SpdAtomicCount => {
                 panic!("SpdAtomicCount is a buffer")
             }
@@ -173,7 +219,7 @@ impl FsrResourceName {
 
             (_, AccessType::Uav) => {
                 let access = match self {
-                    FsrResourceName::InternalUpscaled
+                    FsrResourceName::InternalUpscaledCurrent
                     | FsrResourceName::OutputColor
                     | FsrResourceName::OutputDilatedDepth
                     | FsrResourceName::OutputDilatedMotionVectors
@@ -213,19 +259,15 @@ impl FsrResourceName {
 pub(crate) struct FsrResources {
     pub(crate) constant_buffer: wgpu::Buffer,
 
-    pub(crate) accumulation_1: wgpu::Texture,
-    pub(crate) accumulation_2: wgpu::Texture,
-    pub(crate) luma_1: wgpu::Texture,
-    pub(crate) luma_2: wgpu::Texture,
+    pub(crate) accumulation: DoubleBuffered,
+    pub(crate) luma: DoubleBuffered,
     pub(crate) intermediate_fp16x1: wgpu::Texture,
     pub(crate) shading_change: wgpu::Texture,
     pub(crate) new_locks: wgpu::Texture,
-    pub(crate) internal_upscaled_1: wgpu::Texture,
-    pub(crate) internal_upscaled_2: wgpu::Texture,
+    pub(crate) internal_upscaled: DoubleBuffered,
     pub(crate) spd_mips: wgpu::Texture,
     pub(crate) farthest_depth_mip1: wgpu::Texture,
-    pub(crate) luma_history1: wgpu::Texture,
-    pub(crate) luma_history2: wgpu::Texture,
+    pub(crate) luma_history: DoubleBuffered,
     pub(crate) spd_atomic_counter: wgpu::Buffer,
     pub(crate) dilated_reactive_masks: wgpu::Texture,
     pub(crate) lanczos2_lut: wgpu::Texture,
@@ -271,70 +313,66 @@ impl FsrResources {
             mapped_at_creation: false,
         });
 
-        let accumulation_1 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Accumulation 1"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let render_tex = |label, format| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: max_render_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
 
-        let accumulation_2 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Accumulation 2"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let upscale_tex = |label, format| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: max_upscale_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
 
-        let luma_1 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Luma 1"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        // Double-buffered resources: current_on_even written on even frames,
+        // current_on_odd written on odd frames.
+        let accumulation = DoubleBuffered::new(
+            render_tex("FSR3 Accumulation (even)", wgpu::TextureFormat::R8Unorm),
+            render_tex("FSR3 Accumulation (odd)", wgpu::TextureFormat::R8Unorm),
+        );
 
-        let luma_2 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Luma 2"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let luma = DoubleBuffered::new(
+            render_tex("FSR3 Luma (even)", wgpu::TextureFormat::R16Float),
+            render_tex("FSR3 Luma (odd)", wgpu::TextureFormat::R16Float),
+        );
 
-        let intermediate_fp16x1 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Intermediate FP16x1"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let internal_upscaled = DoubleBuffered::new(
+            upscale_tex(
+                "FSR3 Internal Upscaled (even)",
+                wgpu::TextureFormat::Rgba16Float,
+            ),
+            upscale_tex(
+                "FSR3 Internal Upscaled (odd)",
+                wgpu::TextureFormat::Rgba16Float,
+            ),
+        );
+
+        let luma_history = DoubleBuffered::new(
+            render_tex("FSR3 Luma History (even)", wgpu::TextureFormat::Rgba16Float),
+            render_tex("FSR3 Luma History (odd)", wgpu::TextureFormat::Rgba16Float),
+        );
+
+        let intermediate_fp16x1 =
+            render_tex("FSR3 Intermediate FP16x1", wgpu::TextureFormat::R16Float);
 
         let shading_change = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("FSR3 Shading Change"),
@@ -360,32 +398,6 @@ impl FsrResources {
             view_formats: &[],
         });
 
-        let internal_upscaled_1 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Internal Upscaled 1"),
-            size: max_upscale_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let internal_upscaled_2 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Internal Upscaled 2"),
-            size: max_upscale_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
         let spd_mips = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("FSR3 SPD Mips"),
             size: half_max_render_size,
@@ -408,32 +420,6 @@ impl FsrResources {
             view_formats: &[],
         });
 
-        let luma_history1 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Luma History1"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let luma_history2 = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Luma History2"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
         // This needs to be initialized to zero, but wgpu does this for us.
         let spd_atomic_counter = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FSR3 SPD Atomic Counter"),
@@ -442,18 +428,10 @@ impl FsrResources {
             mapped_at_creation: false,
         });
 
-        let dilated_reactive_masks = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("FSR3 Dilated Reactive Masks"),
-            size: max_render_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        let dilated_reactive_masks = render_tex(
+            "FSR3 Dilated Reactive Masks",
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
 
         let lanczos2_lut = device.create_texture_with_data(
             queue,
@@ -547,19 +525,15 @@ impl FsrResources {
 
         Self {
             constant_buffer,
-            accumulation_1,
-            accumulation_2,
-            luma_1,
-            luma_2,
+            accumulation,
+            luma,
             intermediate_fp16x1,
             shading_change,
             new_locks,
-            internal_upscaled_1,
-            internal_upscaled_2,
+            internal_upscaled,
             spd_mips,
             farthest_depth_mip1,
-            luma_history1,
-            luma_history2,
+            luma_history,
             spd_atomic_counter,
             dilated_reactive_masks,
             lanczos2_lut,
@@ -589,8 +563,8 @@ impl FsrResources {
             }
         };
 
-        // This makes things more reasonable
         match access.name {
+            // --- External (dispatch-provided) resources ---
             FsrResourceName::InputColor => {
                 OwnedBindingResource::View(dispatch.color.create_view(&descriptor))
             }
@@ -641,43 +615,42 @@ impl FsrResources {
                 OwnedBindingResource::Buffer(dispatch.reconstructed_previous_depth.clone())
             }
 
+            // --- Uniform buffer ---
             FsrResourceName::Constants => {
                 OwnedBindingResource::Buffer(self.constant_buffer.clone())
             }
 
-            FsrResourceName::Accumulation => {
-                // UAV uses 1 on odd frames, 2 on even frames
-                // SRV uses 2 on odd frames, 1 on even frames
-                if access.access_type == AccessType::Uav {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
-                    } else {
-                        OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
-                    }
-                } else {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(self.accumulation_2.create_view(&descriptor))
-                    } else {
-                        OwnedBindingResource::View(self.accumulation_1.create_view(&descriptor))
-                    }
-                }
+            // --- Double-buffered resources (temporal side is in the name) ---
+            FsrResourceName::AccumulationCurrent => {
+                OwnedBindingResource::View(self.accumulation.current(kind).create_view(&descriptor))
             }
+            FsrResourceName::AccumulationPrevious => OwnedBindingResource::View(
+                self.accumulation.previous(kind).create_view(&descriptor),
+            ),
             FsrResourceName::Luma => {
-                // Luma always uses 2 on odd frames, 1 on even frames
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
-                } else {
-                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
-                }
+                OwnedBindingResource::View(self.luma.current(kind).create_view(&descriptor))
             }
             FsrResourceName::PreviousLuma => {
-                // PreviousLuma always uses 1 on odd frames, 2 on even frames
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.luma_1.create_view(&descriptor))
-                } else {
-                    OwnedBindingResource::View(self.luma_2.create_view(&descriptor))
-                }
+                OwnedBindingResource::View(self.luma.previous(kind).create_view(&descriptor))
             }
+            FsrResourceName::InternalUpscaledCurrent => OwnedBindingResource::View(
+                self.internal_upscaled
+                    .current(kind)
+                    .create_view(&descriptor),
+            ),
+            FsrResourceName::InternalUpscaledPrevious => OwnedBindingResource::View(
+                self.internal_upscaled
+                    .previous(kind)
+                    .create_view(&descriptor),
+            ),
+            FsrResourceName::LumaHistoryCurrent => {
+                OwnedBindingResource::View(self.luma_history.current(kind).create_view(&descriptor))
+            }
+            FsrResourceName::LumaHistoryPrevious => OwnedBindingResource::View(
+                self.luma_history.previous(kind).create_view(&descriptor),
+            ),
+
+            // --- Single-instance internal resources ---
             FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
                 OwnedBindingResource::View(self.intermediate_fp16x1.create_view(&descriptor))
             }
@@ -687,62 +660,11 @@ impl FsrResources {
             FsrResourceName::NewLocks => {
                 OwnedBindingResource::View(self.new_locks.create_view(&descriptor))
             }
-            FsrResourceName::InternalUpscaled => {
-                // UAV uses 1 on odd frames, 2 on even frames
-                // SRV uses 2 on odd frames, 1 on even frames
-                if access.access_type == AccessType::Uav {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(
-                            self.internal_upscaled_1.create_view(&descriptor),
-                        )
-                    } else {
-                        OwnedBindingResource::View(
-                            self.internal_upscaled_2.create_view(&descriptor),
-                        )
-                    }
-                } else {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(
-                            self.internal_upscaled_2.create_view(&descriptor),
-                        )
-                    } else {
-                        OwnedBindingResource::View(
-                            self.internal_upscaled_1.create_view(&descriptor),
-                        )
-                    }
-                }
-            }
-            FsrResourceName::RcasInput => {
-                // RCAS reads the CURRENT frame's upscaled data — the same
-                // physical texture that AccumulateSharpen wrote to as UAV.
-                if kind == FrameKind::Odd {
-                    OwnedBindingResource::View(self.internal_upscaled_1.create_view(&descriptor))
-                } else {
-                    OwnedBindingResource::View(self.internal_upscaled_2.create_view(&descriptor))
-                }
-            }
             FsrResourceName::SpdMips => {
                 OwnedBindingResource::View(self.spd_mips.create_view(&descriptor))
             }
             FsrResourceName::FarthestDepthMip1 => {
                 OwnedBindingResource::View(self.farthest_depth_mip1.create_view(&descriptor))
-            }
-            FsrResourceName::LumaHistory => {
-                // UAV uses 1 on odd frames, 2 on even frames
-                // SRV uses 2 on odd frames, 1 on even frames
-                if access.access_type == AccessType::Uav {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
-                    } else {
-                        OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
-                    }
-                } else {
-                    if kind == FrameKind::Odd {
-                        OwnedBindingResource::View(self.luma_history2.create_view(&descriptor))
-                    } else {
-                        OwnedBindingResource::View(self.luma_history1.create_view(&descriptor))
-                    }
-                }
             }
             FsrResourceName::SpdAtomicCount => {
                 OwnedBindingResource::Buffer(self.spd_atomic_counter.clone())
@@ -762,6 +684,8 @@ impl FsrResources {
             FsrResourceName::FrameInfo => {
                 OwnedBindingResource::View(self.frame_info.create_view(&descriptor))
             }
+
+            // --- Samplers ---
             FsrResourceName::SamplerPointClamp => {
                 OwnedBindingResource::Sampler(self.sampler_point_clamp.clone())
             }
