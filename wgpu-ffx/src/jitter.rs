@@ -13,7 +13,7 @@ fn halton(index: i32, base: i32) -> f32 {
     while current_index > 0 {
         f /= base as f32;
         result += f * (current_index % base) as f32;
-        current_index = f32::floor(current_index as f32 / base as f32) as i32;
+        current_index /= base;
     }
 
     result

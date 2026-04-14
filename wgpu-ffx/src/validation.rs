@@ -59,8 +59,8 @@ pub enum FsrDispatchError {
     )]
     FrameTimeDeltaTooLow(f32),
 
-    #[error("Pre-exposure is 0.0, which is invalid")]
-    PreExposureZero,
+    #[error("Pre-exposure {0} must be greater than 0.0")]
+    PreExposureNotPositive(f32),
 
     #[error(
         "DEPTH_INVERTED flag is set, but camera near ({camera_near}) is less than camera far ({camera_far})"
@@ -190,8 +190,8 @@ pub fn check_dispatch(
     }
 
     // Check pre-exposure
-    if info.pre_exposure == 0.0 {
-        return Err(FsrDispatchError::PreExposureZero);
+    if info.pre_exposure <= 0.0 {
+        return Err(FsrDispatchError::PreExposureNotPositive(info.pre_exposure));
     }
 
     // Check depth configuration

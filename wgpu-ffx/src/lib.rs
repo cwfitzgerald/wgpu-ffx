@@ -226,12 +226,18 @@ impl FsrContext {
     /// The returned [`FsrView`] holds all textures and temporal accumulation
     /// state. Multiple views can be created from the same context for
     /// multi-camera or split-screen rendering.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any dimension of `max_render_size` is less than 2, or any
+    /// dimension of `max_upscale_size` is 0.
     pub fn create_view(
         &self,
         queue: &wgpu::Queue,
         max_render_size: [u32; 2],
         max_upscale_size: [u32; 2],
     ) -> FsrView {
+        FsrView::validate_sizes(max_render_size, max_upscale_size);
         FsrView::new(
             self.device.clone(),
             queue,
@@ -662,6 +668,22 @@ impl FsrContext {
 }
 
 impl FsrView {
+    fn validate_sizes(max_render_size: [u32; 2], max_upscale_size: [u32; 2]) {
+        assert!(
+            max_render_size[0] >= 2 && max_render_size[1] >= 2,
+            "max_render_size must be at least [2, 2], got [{}, {}] \
+             (internal half-resolution textures require dimensions >= 1)",
+            max_render_size[0],
+            max_render_size[1],
+        );
+        assert!(
+            max_upscale_size[0] >= 1 && max_upscale_size[1] >= 1,
+            "max_upscale_size must be at least [1, 1], got [{}, {}]",
+            max_upscale_size[0],
+            max_upscale_size[1],
+        );
+    }
+
     fn new(
         device: wgpu::Device,
         queue: &wgpu::Queue,
@@ -703,12 +725,18 @@ impl FsrView {
     ///
     /// Resets all temporal history — the next dispatch will behave as the
     /// first frame.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any dimension of `max_render_size` is less than 2, or any
+    /// dimension of `max_upscale_size` is 0.
     pub fn resize(
         &mut self,
         queue: &wgpu::Queue,
         max_render_size: [u32; 2],
         max_upscale_size: [u32; 2],
     ) {
+        Self::validate_sizes(max_render_size, max_upscale_size);
         self.resources =
             resources::FsrResources::new(&self.device, queue, max_render_size, max_upscale_size);
         self.max_render_size = max_render_size;
