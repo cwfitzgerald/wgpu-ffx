@@ -11,32 +11,49 @@ be used at a 1:1 ratio for temporal anti-aliasing (TAA) without upscaling.
 
 **Early / experimental.** Known limitations:
 
-- Shader permutation selection is not yet driven by flags
 - `GenerateReactive` pass is unimplemented
+- Lanczos-LUT, half-precision, and wave64 shader permutations are not yet
+  selected based on device capabilities (the reference/full-precision variants
+  are always chosen)
 
 ## Requirements
 
-- **wgpu 28**
+- **wgpu 29**
 
 ## Usage
 
 ```rust
 use wgpu_ffx::{FsrContext, FsrContextInfo, FsrContextFlags, FsrDispatchInfo};
 
-// Create the upscaler context once.
+// Create the context once; this compiles all compute pipelines for the given
+// feature flags but allocates no GPU textures.
 let ctx = FsrContext::new(FsrContextInfo {
-    device,
-    queue,
-    max_render_size: [1920, 1080],
-    max_upscale_size: [3840, 2160],
+    device: device.clone(),
     flags: FsrContextFlags::HIGH_DYNAMIC_RANGE
          | FsrContextFlags::DEPTH_INVERTED
          | FsrContextFlags::DEPTH_INFINITE,
 });
 
-// Per frame:
-ctx.dispatch(&mut FsrDispatchInfo { /* ... */ })?;
+// Create a view for a specific maximum-resolution pair; this allocates all
+// internal GPU textures and temporal-accumulation state. Multiple views may
+// share a single context.
+let mut view = ctx.create_view(&queue, [1920, 1080], [3840, 2160]);
+
+// Per frame: record FSR passes into an encoder the caller submits.
+let mut encoder = device.create_command_encoder(&Default::default());
+ctx.dispatch(&mut view, &mut encoder, &FsrDispatchInfo { /* ... */ })?;
+queue.submit([encoder.finish()]);
 ```
+
+`FsrView::resize` reallocates internal textures for a new maximum-resolution
+pair without rebuilding the parent context's pipelines.
+
+### Sharpening (RCAS)
+
+Set `FsrDispatchInfo::enable_sharpening` to run an additional
+Robust Contrast Adaptive Sharpening pass after accumulation. The `sharpness`
+field accepts values in `[0.0, 1.0]`, where `0.0` is no additional sharpness
+and `1.0` is maximum.
 
 ## Texture format requirements
 

@@ -84,8 +84,12 @@ jj git push
 
 ### 6. Publish to crates.io
 
+`cargo publish --workspace` handles intra-workspace dependency ordering
+automatically. `xtask` is internal tooling — keep it marked `publish = false`
+in its `Cargo.toml` (or exclude it explicitly) so it isn't uploaded.
+
 ```bash
-cargo publish
+cargo publish --workspace
 ```
 
 ### 7. Create the GitHub release
