@@ -13,9 +13,13 @@ allow = [
 [bans]
 multiple-versions = "deny"
 skip = [
-    # wgpu's dependency tree pulls in both hashbrown 0.15 (via gpu-descriptor, petgraph)
-    # and 0.16 (via gpu-allocator, indexmap, naga, wgpu-core). Transitive; can't unify.
+    # wgpu's dependency tree pulls in both hashbrown:
+    # - 0.15 (via gpu-descriptor, petgraph)
+    # - 0.16 (via gpu-allocator, naga, wgpu-core)
+    # - 0.17 (via indexmap)
     { crate = "hashbrown@0.15", reason = "wgpu transitive dependency split" },
+    { crate = "hashbrown@0.16", reason = "wgpu transitive dependency split" },
+
     # foldhash 0.1 and 0.2 follow the same hashbrown 0.15/0.16 split.
     { crate = "foldhash@0.1", reason = "wgpu transitive dependency split" },
 ]
@@ -25,8 +29,4 @@ unknown-registry = "deny"
 unknown-git = "allow"
 
 [advisories]
-ignore = [
-    # RUSTSEC-2024-0436: paste is unmaintained. Transitive dep via metal crate in wgpu-hal.
-    # No action we can take until wgpu's dependency tree drops it.
-    "RUSTSEC-2024-0436",
-]
+ignore = []
