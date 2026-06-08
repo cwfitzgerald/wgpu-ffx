@@ -26,6 +26,7 @@
 
 mod clear_buffer;
 mod constants;
+mod format_profile;
 mod jitter;
 mod lanczos2;
 mod pass;
@@ -46,6 +47,7 @@ use crate::{
 };
 
 // Re-export validation types
+pub use format_profile::{FormatProfile, FsrFormats};
 pub use jitter::*;
 pub use validation::FsrDispatchError;
 
@@ -74,6 +76,7 @@ pub struct FsrContext {
     pass_debug_view: pass::FsrPass,
 
     flags: FsrContextFlags,
+    format_profile: FormatProfile,
 }
 
 /// Per-resolution, per-camera state for FSR3 upscaling.
@@ -106,6 +109,19 @@ impl FsrContext {
     /// `info`. No GPU textures are allocated — use [`FsrContext::create_view`]
     /// to create per-resolution state.
     pub fn new(info: FsrContextInfo) -> Self {
+        let format_profile = info
+            .format_profile
+            .unwrap_or_else(|| FormatProfile::from_device(&info.device));
+
+        // The `Core` and `Tier2` profiles require storage-format fallbacks and
+        // the matching shader variants, which are not yet built. Only `Native`
+        // is wired up today.
+        assert!(
+            matches!(format_profile, FormatProfile::Native),
+            "FormatProfile::{format_profile:?} is not yet implemented; \
+             only FormatProfile::Native is currently supported"
+        );
+
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
         let flags = info.flags;
@@ -218,7 +234,21 @@ impl FsrContext {
             pass_debug_view,
 
             flags: info.flags,
+            format_profile,
         }
+    }
+
+    /// The [`FormatProfile`] this context was created with (either the value
+    /// forced via [`FsrContextInfo::format_profile`] or the one auto-detected
+    /// from the device).
+    pub fn format_profile(&self) -> FormatProfile {
+        self.format_profile
+    }
+
+    /// The formats the caller must use for the textures it provides to
+    /// [`FsrContext::dispatch`]. Equivalent to `self.format_profile().formats()`.
+    pub fn formats(&self) -> FsrFormats {
+        self.format_profile.formats()
     }
 
     /// Allocate internal GPU resources for a given maximum resolution pair.
@@ -309,6 +339,7 @@ impl FsrContext {
         validation::check_dispatch(
             info,
             self.flags,
+            self.format_profile.formats(),
             view.max_render_size,
             view.max_upscale_size,
         )
@@ -845,6 +876,13 @@ pub struct FsrContextInfo {
     pub device: wgpu::Device,
     /// Configuration options for the FSR context.
     pub flags: FsrContextFlags,
+    /// The storage-format profile to drive the device at.
+    ///
+    /// `None` auto-detects the richest profile the device supports via
+    /// [`FormatProfile::from_device`]. `Some` forces a specific profile (the
+    /// device must support it) — for example to exercise the [`FormatProfile::Core`]
+    /// path on a capable desktop adapter.
+    pub format_profile: Option<FormatProfile>,
 }
 
 bitflags::bitflags! {
@@ -974,6 +1012,7 @@ fn fsr_smoke() {
     let fsr_context = FsrContext::new(FsrContextInfo {
         device: device.clone(),
         flags: FsrContextFlags::empty(),
+        format_profile: None,
     });
 
     let _view = fsr_context.create_view(&queue, [1920, 1080], [3840, 2160]);
@@ -1007,6 +1046,7 @@ fn fsr_dispatch_smoke() {
     let fsr_context = FsrContext::new(FsrContextInfo {
         device: device.clone(),
         flags: FsrContextFlags::HIGH_DYNAMIC_RANGE,
+        format_profile: None,
     });
 
     let mut view = fsr_context.create_view(&queue, render_size, upscale_size);

@@ -3,13 +3,22 @@
 //! All checks are run before any GPU work is recorded, so a validation
 //! failure will never leave the command encoder in a partially-recorded state.
 
-use crate::{FsrContextFlags, FsrDispatchInfo};
+use crate::{FsrContextFlags, FsrDispatchInfo, FsrFormats};
 
 /// Errors that can occur during FSR dispatch validation.
 #[derive(Debug, thiserror::Error)]
 pub enum FsrDispatchError {
     #[error("Exposure resource provided, but AUTO_EXPOSURE flag is set")]
     ExposureWithAutoExposureFlag,
+
+    #[error(
+        "Texture `{texture}` has format {actual:?}, but the active format profile requires {expected:?}"
+    )]
+    TextureFormatMismatch {
+        texture: &'static str,
+        expected: wgpu::TextureFormat,
+        actual: wgpu::TextureFormat,
+    },
 
     #[error("Jitter offset [{x}, {y}] is outside the expected range [-1.0, 1.0]")]
     JitterOffsetOutOfRange { x: f32, y: f32 },
@@ -106,12 +115,45 @@ pub enum FsrDispatchError {
 pub fn check_dispatch(
     info: &FsrDispatchInfo,
     flags: FsrContextFlags,
+    formats: FsrFormats,
     max_render_size: [u32; 2],
     max_upscale_size: [u32; 2],
 ) -> Result<(), FsrDispatchError> {
     // Check exposure configuration
     if info.exposure.is_some() && flags.contains(FsrContextFlags::AUTO_EXPOSURE) {
         return Err(FsrDispatchError::ExposureWithAutoExposureFlag);
+    }
+
+    // Check that the caller-provided textures match the formats required by the
+    // active format profile.
+    let format_checks = [
+        ("color", info.color.format(), formats.color),
+        ("depth", info.depth.format(), formats.depth),
+        (
+            "motion_vectors",
+            info.motion_vectors.format(),
+            formats.motion_vectors,
+        ),
+        ("output", info.output.format(), formats.output),
+        (
+            "dilated_depth",
+            info.dilated_depth.format(),
+            formats.dilated_depth,
+        ),
+        (
+            "dilated_motion_vectors",
+            info.dilated_motion_vectors.format(),
+            formats.dilated_motion_vectors,
+        ),
+    ];
+    for (texture, actual, expected) in format_checks {
+        if actual != expected {
+            return Err(FsrDispatchError::TextureFormatMismatch {
+                texture,
+                expected,
+                actual,
+            });
+        }
     }
 
     // Check jitter offset range
