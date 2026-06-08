@@ -140,7 +140,9 @@ impl FsrResourceName {
             FsrResourceName::Lanczos2Lut => wgpu::TextureFormat::R16Snorm,
             FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
             FsrResourceName::DefaultExposure => wgpu::TextureFormat::Rg32Float,
-            FsrResourceName::FrameInfo => wgpu::TextureFormat::Rgba32Float,
+            FsrResourceName::FrameInfo => {
+                panic!("FrameInfo is a buffer")
+            }
 
             FsrResourceName::SamplerPointClamp | FsrResourceName::SamplerLinearClamp => {
                 panic!("Samplers are Samplers")
@@ -199,6 +201,20 @@ impl FsrResourceName {
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // Frame info is a storage buffer: read-only when sampled (Srv),
+            // read-write when produced (Uav).
+            (FsrResourceName::FrameInfo, access) => wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage {
+                        read_only: matches!(access, AccessType::Srv),
+                    },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -282,7 +298,7 @@ pub(crate) struct FsrResources {
     pub(crate) lanczos2_lut: wgpu::Texture,
     pub(crate) default_reactivity_mask: wgpu::Texture,
     pub(crate) default_exposure: wgpu::Texture,
-    pub(crate) frame_info: wgpu::Texture,
+    pub(crate) frame_info: wgpu::Buffer,
 
     pub(crate) sampler_point_clamp: wgpu::Sampler,
     pub(crate) sampler_linear_clamp: wgpu::Sampler,
@@ -493,21 +509,14 @@ impl FsrResources {
             view_formats: &[],
         });
 
-        let frame_info = device.create_texture(&wgpu::TextureDescriptor {
+        // A single `vec4<f32>` of per-frame metadata, read-modify-written by the
+        // compute passes. Backed by a storage buffer so the read-write access
+        // works on every format profile.
+        let frame_info = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FSR3 Frame Info"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+            size: 4 * std::mem::size_of::<f32>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let sampler_linear_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -690,9 +699,7 @@ impl FsrResources {
             FsrResourceName::DefaultExposure => {
                 OwnedBindingResource::View(self.default_exposure.create_view(&descriptor))
             }
-            FsrResourceName::FrameInfo => {
-                OwnedBindingResource::View(self.frame_info.create_view(&descriptor))
-            }
+            FsrResourceName::FrameInfo => OwnedBindingResource::Buffer(self.frame_info.clone()),
 
             // --- Samplers ---
             FsrResourceName::SamplerPointClamp => {

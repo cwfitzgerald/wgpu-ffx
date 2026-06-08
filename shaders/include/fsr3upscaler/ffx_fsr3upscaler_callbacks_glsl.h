@@ -817,26 +817,36 @@ void StorePrevPostAlpha(FFX_PARAMETER_IN FFX_MIN16_I2 iPxPos, FFX_PARAMETER_IN F
 }
 #endif
 
+// Frame info is a single texel of read-modify-write metadata. It is backed by
+// a storage buffer rather than a texture so that the read-modify-write access
+// works on every format profile (read-write storage textures are heavily
+// restricted in baseline WebGPU). See docs/texture-formats.md.
 #if defined(FSR3UPSCALER_BIND_UAV_FRAME_INFO)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FRAME_INFO, rgba32f) uniform image2D rw_frame_info;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FRAME_INFO, std430) buffer RwFrameInfo
+{
+    FfxFloat32x4 rw_frame_info;
+};
 
 FfxFloat32x4 LoadFrameInfo()
 {
-    return imageLoad(rw_frame_info, ivec2(0, 0));
+    return rw_frame_info;
 }
 
 void StoreFrameInfo(FfxFloat32x4 fInfo)
 {
-    imageStore(rw_frame_info, ivec2(0, 0), fInfo);
+    rw_frame_info = fInfo;
 }
 #endif
 
 #if defined(FSR3UPSCALER_BIND_SRV_FRAME_INFO)
-layout(set = 0, binding = FSR3UPSCALER_BIND_SRV_FRAME_INFO) uniform texture2D r_frame_info;
+layout(set = 0, binding = FSR3UPSCALER_BIND_SRV_FRAME_INFO, std430) readonly buffer RFrameInfo
+{
+    FfxFloat32x4 r_frame_info;
+};
 
 FfxFloat32x4 FrameInfo()
 {
-    return texelFetch(r_frame_info, ivec2(0, 0), 0);
+    return r_frame_info;
 }
 #endif
 

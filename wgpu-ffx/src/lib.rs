@@ -492,36 +492,21 @@ impl FsrContext {
                 );
             }
 
-            let mut clear_values_exposure = vec![-1.0f32, 1.0, 0.0, 0.0];
-            clear_values_exposure.resize(64, 0.0);
+            let clear_values_frame_info = [-1.0f32, 1.0, 0.0, 0.0];
             let staging_buffer =
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("exposure_staging_buffer"),
-                        contents: bytemuck::cast_slice(&clear_values_exposure),
+                        label: Some("frame_info_staging_buffer"),
+                        contents: bytemuck::cast_slice(&clear_values_frame_info),
                         usage: wgpu::BufferUsages::COPY_SRC,
                     });
 
-            encoder.copy_buffer_to_texture(
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &staging_buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(256),
-                        rows_per_image: Some(1),
-                    },
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &view.resources.frame_info,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
+            encoder.copy_buffer_to_buffer(
+                &staging_buffer,
+                0,
+                &view.resources.frame_info,
+                0,
+                std::mem::size_of_val(&clear_values_frame_info) as wgpu::BufferAddress,
             );
         }
 
@@ -861,7 +846,7 @@ impl FsrView {
         total += 128 * 2; // lanczos2_lut: 128 entries × R16Snorm (2 bytes)
         total += 1; // default_reactivity_mask: 1×1 R8Unorm
         total += 8; // default_exposure: 1×1 Rg32Float
-        total += 16; // frame_info: 1×1 Rgba32Float
+        total += 16; // frame_info: vec4<f32> storage buffer
 
         // Buffers
         total += 4; // spd_atomic_counter: 4 bytes
