@@ -393,7 +393,7 @@ FfxFloat32x4 SampleHistory(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_LUMA_HISTORY)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_HISTORY, rgba16f) uniform image2D rw_luma_history;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_HISTORY, rgba16f) writeonly uniform image2D rw_luma_history;
 
 void StoreLumaHistory(FfxInt32x2 iPxPos, FfxFloat32x4 fLumaHistory)
 {
@@ -462,7 +462,7 @@ FfxFloat32 SampleAccumulation(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_ACCUMULATION)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_ACCUMULATION, r8) uniform image2D rw_accumulation;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_ACCUMULATION, r8) writeonly uniform image2D rw_accumulation;
 
 void StoreAccumulation(FfxInt32x2 iPxPos, FfxFloat32 fAccumulation)
 {
@@ -485,7 +485,7 @@ FfxFloat32 SampleShadingChange(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_SHADING_CHANGE)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SHADING_CHANGE, r8) uniform image2D rw_shading_change;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SHADING_CHANGE, r8) writeonly uniform image2D rw_shading_change;
 
 void StoreShadingChange(FfxInt32x2 iPxPos, FfxFloat32 fShadingChange)
 {
@@ -513,7 +513,7 @@ FfxFloat32 SampleFarthestDepth(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH, r16f) uniform image2D rw_farthest_depth;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH, r16f) writeonly uniform image2D rw_farthest_depth;
 
 void StoreFarthestDepth(FfxInt32x2 iPxPos, FfxFloat32 fDepth)
 {
@@ -541,7 +541,7 @@ FfxFloat32 SampleFarthestDepthMip1(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1, r16f) uniform image2D rw_farthest_depth_mip1;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1, r16f) writeonly uniform image2D rw_farthest_depth_mip1;
 
 void StoreFarthestDepthMip1(FfxInt32x2 iPxPos, FfxFloat32 fDepth)
 {
@@ -564,7 +564,7 @@ FfxFloat32 SampleCurrentLuma(FfxFloat32x2 uv)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_CURRENT_LUMA)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_CURRENT_LUMA, r16f) uniform image2D rw_current_luma;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_CURRENT_LUMA, r16f) writeonly uniform image2D rw_current_luma;
 
 void StoreCurrentLuma(FfxInt32x2 iPxPos, FfxFloat32 fLuma)
 {
@@ -582,7 +582,7 @@ FfxFloat32 SampleLumaInstability(FfxFloat32x2 uv)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY, r16f) uniform image2D rw_luma_instability;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY, r16f) writeonly uniform image2D rw_luma_instability;
 
 void StoreLumaInstability(FfxInt32x2 iPxPos, FfxFloat32 fLumaInstability)
 {

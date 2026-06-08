@@ -219,13 +219,22 @@ impl FsrResourceName {
 
             (_, AccessType::Uav) => {
                 let access = match self {
+                    // Store-only storage textures: the shader only ever
+                    // `imageStore`s to these, so they are bound write-only.
+                    // (The genuinely read-modify-write storage textures —
+                    // NewLocks, FrameInfo, SpdMips — fall through to ReadWrite.)
                     FsrResourceName::InternalUpscaledCurrent
                     | FsrResourceName::OutputColor
                     | FsrResourceName::OutputDilatedDepth
                     | FsrResourceName::OutputDilatedMotionVectors
-                    | FsrResourceName::DilatedReactiveMasks => {
-                        wgpu::StorageTextureAccess::WriteOnly
-                    }
+                    | FsrResourceName::DilatedReactiveMasks
+                    | FsrResourceName::AccumulationCurrent
+                    | FsrResourceName::Luma
+                    | FsrResourceName::LumaInstability
+                    | FsrResourceName::FarthestDepth
+                    | FsrResourceName::ShadingChange
+                    | FsrResourceName::FarthestDepthMip1
+                    | FsrResourceName::LumaHistoryCurrent => wgpu::StorageTextureAccess::WriteOnly,
                     _ => wgpu::StorageTextureAccess::ReadWrite,
                 };
                 wgpu::BindGroupLayoutEntry {
