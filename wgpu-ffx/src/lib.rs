@@ -88,6 +88,7 @@ pub struct FsrContext {
 /// without recreating the parent [`FsrContext`] (avoiding pipeline recompilation).
 pub struct FsrView {
     device: wgpu::Device,
+    format_profile: FormatProfile,
 
     constants: constants::Constants,
     resources: resources::FsrResources,
@@ -126,6 +127,11 @@ impl FsrContext {
 
         let flags = info.flags;
         let shaders = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
+            match format_profile {
+                FormatProfile::Core => WgpuFormatProfile::Core,
+                FormatProfile::Tier2 => WgpuFormatProfile::Tier2,
+                FormatProfile::Native => WgpuFormatProfile::Native,
+            },
             Half::Off,
             Wave64::Off,
             // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
@@ -157,38 +163,49 @@ impl FsrContext {
             &info.device,
             pass::FsrPassKind::PrepareInputs,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_prepare_reactivity = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::PrepareReactivity,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_shading_change = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::ShadingChange,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_accumulate = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::Accumulate,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_accumulate_sharpen = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::AccumulateSharpen,
             info.flags,
+            format_profile,
             &shaders,
         );
-        let pass_rcas =
-            pass::FsrPass::new(&info.device, pass::FsrPassKind::Rcas, info.flags, &shaders);
+        let pass_rcas = pass::FsrPass::new(
+            &info.device,
+            pass::FsrPassKind::Rcas,
+            info.flags,
+            format_profile,
+            &shaders,
+        );
         let pass_luma_pyramid = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::LumaPyramid,
             info.flags,
+            format_profile,
             &shaders,
         );
         // let pass_generate_reactive = pass::FsrPass::new(
@@ -201,18 +218,21 @@ impl FsrContext {
             &info.device,
             pass::FsrPassKind::ShadingChangePyramid,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_luma_instability = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::LumaInstability,
             info.flags,
+            format_profile,
             &shaders,
         );
         let pass_debug_view = pass::FsrPass::new(
             &info.device,
             pass::FsrPassKind::DebugView,
             info.flags,
+            format_profile,
             &shaders,
         );
 
@@ -271,6 +291,7 @@ impl FsrContext {
         FsrView::new(
             self.device.clone(),
             queue,
+            self.format_profile,
             max_render_size,
             max_upscale_size,
         )
@@ -703,6 +724,7 @@ impl FsrView {
     fn new(
         device: wgpu::Device,
         queue: &wgpu::Queue,
+        format_profile: FormatProfile,
         max_render_size: [u32; 2],
         max_upscale_size: [u32; 2],
     ) -> Self {
@@ -723,10 +745,12 @@ impl FsrView {
             resources: resources::FsrResources::new(
                 &device,
                 queue,
+                format_profile,
                 max_render_size,
                 max_upscale_size,
             ),
             device,
+            format_profile,
             max_render_size,
             max_upscale_size,
             first_execution: true,
@@ -753,8 +777,13 @@ impl FsrView {
         max_upscale_size: [u32; 2],
     ) {
         Self::validate_sizes(max_render_size, max_upscale_size);
-        self.resources =
-            resources::FsrResources::new(&self.device, queue, max_render_size, max_upscale_size);
+        self.resources = resources::FsrResources::new(
+            &self.device,
+            queue,
+            self.format_profile,
+            max_render_size,
+            max_upscale_size,
+        );
         self.max_render_size = max_render_size;
         self.max_upscale_size = max_upscale_size;
         self.constants = constants::Constants {

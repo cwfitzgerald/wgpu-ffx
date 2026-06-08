@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    FrameKind, FsrContextFlags, FsrDispatchInfo,
+    FormatProfile, FrameKind, FsrContextFlags, FsrDispatchInfo,
     resources::{AccessType, FsrResourceName, FsrResources},
 };
 
@@ -18,6 +18,7 @@ impl FsrPass {
         device: &wgpu::Device,
         kind: FsrPassKind,
         flags: FsrContextFlags,
+        format_profile: FormatProfile,
         shaders: &Shaders,
     ) -> Self {
         let shader_module = if device
@@ -51,7 +52,11 @@ impl FsrPass {
         let bgl_entries: Vec<_> = resources
             .into_iter()
             .enumerate()
-            .map(|(i, access)| access.name.to_bgl_entry(i as u32, access.access_type))
+            .map(|(i, access)| {
+                access
+                    .name
+                    .to_bgl_entry(i as u32, access.access_type, format_profile)
+            })
             .collect();
 
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

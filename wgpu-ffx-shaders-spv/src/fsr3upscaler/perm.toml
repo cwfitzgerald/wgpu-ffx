@@ -16,6 +16,9 @@ FFX_FSR3UPSCALER_OPTION_UPSAMPLE_USE_LANCZOS_TYPE = 2
 FFX_SPD_NO_WAVE_OPERATIONS = 1
 
 [permutations]
+# Storage-texture format profile. See docs/texture-formats.md.
+FFX_WGPU_FORMAT_PROFILE = { Core = 0, Tier2 = 1, Native = 2 }
+
 # Shaders currently require u16 support to use f16
 FFX_HALF = [0]
 # No way for subgroup size control currently.

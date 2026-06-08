@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt as _;
 
-use crate::{FrameKind, pass::ResourceAccess};
+use crate::{FormatProfile, FrameKind, pass::ResourceAccess};
 
 use super::FsrDispatchInfo;
 
@@ -96,7 +96,18 @@ pub(crate) enum FsrResourceName {
 }
 
 impl FsrResourceName {
-    pub(crate) fn format(&self) -> wgpu::TextureFormat {
+    pub(crate) fn format(&self, profile: FormatProfile) -> wgpu::TextureFormat {
+        use wgpu::TextureFormat as Tf;
+
+        // On the Core profile, storage formats that baseline WebGPU cannot bind
+        // are remapped: single-channel formats that are linearly sampled widen
+        // to RGBA (keeping hardware filtering), while point-sampled / read-write
+        // ones pack into a 32-bit format. These must agree with the FSR3_FMT_*
+        // macros in the GLSL callbacks header. Tier2 and Native keep the native
+        // formats; the SPD mips are the only Tier2 difference and are handled by
+        // the SPD restructure. See docs/texture-formats.md.
+        let core = matches!(profile, FormatProfile::Core);
+
         match self {
             FsrResourceName::InputColor
             | FsrResourceName::InputDepth
@@ -106,9 +117,15 @@ impl FsrResourceName {
             | FsrResourceName::InputTransparencyAndComposition => {
                 panic!("Input resources do not have a fixed format")
             }
-            FsrResourceName::OutputColor => wgpu::TextureFormat::Rgba16Float,
-            FsrResourceName::OutputDilatedDepth => wgpu::TextureFormat::R32Float,
-            FsrResourceName::OutputDilatedMotionVectors => wgpu::TextureFormat::Rg16Float,
+            FsrResourceName::OutputColor => Tf::Rgba16Float,
+            FsrResourceName::OutputDilatedDepth => Tf::R32Float,
+            FsrResourceName::OutputDilatedMotionVectors => {
+                if core {
+                    Tf::Rg32Float
+                } else {
+                    Tf::Rg16Float
+                }
+            }
             FsrResourceName::OutputReconstructedPreviousDepth => {
                 panic!("ReconstructedPreviousDepth is a buffer")
             }
@@ -117,29 +134,48 @@ impl FsrResourceName {
                 panic!("Constants is a buffer")
             }
 
-            FsrResourceName::AccumulationCurrent | FsrResourceName::AccumulationPrevious => {
-                wgpu::TextureFormat::R8Unorm
+            FsrResourceName::AccumulationCurrent
+            | FsrResourceName::AccumulationPrevious
+            | FsrResourceName::ShadingChange => {
+                if core {
+                    Tf::Rgba8Unorm
+                } else {
+                    Tf::R8Unorm
+                }
             }
-            FsrResourceName::Luma | FsrResourceName::PreviousLuma => wgpu::TextureFormat::R16Float,
-            FsrResourceName::LumaInstability | FsrResourceName::FarthestDepth => {
-                wgpu::TextureFormat::R16Float
+            FsrResourceName::Luma
+            | FsrResourceName::PreviousLuma
+            | FsrResourceName::LumaInstability
+            | FsrResourceName::FarthestDepth
+            | FsrResourceName::FarthestDepthMip1 => {
+                if core {
+                    Tf::Rgba16Float
+                } else {
+                    Tf::R16Float
+                }
             }
-            FsrResourceName::ShadingChange => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::NewLocks => wgpu::TextureFormat::R8Unorm,
+            FsrResourceName::NewLocks => {
+                if core {
+                    Tf::R32Float
+                } else {
+                    Tf::R8Unorm
+                }
+            }
             FsrResourceName::InternalUpscaledCurrent
-            | FsrResourceName::InternalUpscaledPrevious => wgpu::TextureFormat::Rgba16Float,
-            FsrResourceName::SpdMips => wgpu::TextureFormat::Rg16Float,
-            FsrResourceName::FarthestDepthMip1 => wgpu::TextureFormat::R16Float,
+            | FsrResourceName::InternalUpscaledPrevious => Tf::Rgba16Float,
+            // TODO(format-profile): the SPD mips widen to Rgba16Float on
+            // Core/Tier2 as part of the SPD restructure.
+            FsrResourceName::SpdMips => Tf::Rg16Float,
             FsrResourceName::LumaHistoryCurrent | FsrResourceName::LumaHistoryPrevious => {
-                wgpu::TextureFormat::Rgba16Float
+                Tf::Rgba16Float
             }
             FsrResourceName::SpdAtomicCount => {
                 panic!("SpdAtomicCount is a buffer")
             }
-            FsrResourceName::DilatedReactiveMasks => wgpu::TextureFormat::Rgba8Unorm,
-            FsrResourceName::Lanczos2Lut => wgpu::TextureFormat::R16Snorm,
-            FsrResourceName::DefaultReactivityMask => wgpu::TextureFormat::R8Unorm,
-            FsrResourceName::DefaultExposure => wgpu::TextureFormat::Rg32Float,
+            FsrResourceName::DilatedReactiveMasks => Tf::Rgba8Unorm,
+            FsrResourceName::Lanczos2Lut => Tf::R16Snorm,
+            FsrResourceName::DefaultReactivityMask => Tf::R8Unorm,
+            FsrResourceName::DefaultExposure => Tf::Rg32Float,
             FsrResourceName::FrameInfo => {
                 panic!("FrameInfo is a buffer")
             }
@@ -154,6 +190,7 @@ impl FsrResourceName {
         self,
         binding: u32,
         access_type: AccessType,
+        profile: FormatProfile,
     ) -> wgpu::BindGroupLayoutEntry {
         match (self, access_type) {
             (
@@ -258,14 +295,24 @@ impl FsrResourceName {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access,
-                        format: self.format(),
+                        format: self.format(profile),
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
                 }
             }
             (_, AccessType::Srv) => {
-                let filterable = !matches!(self, FsrResourceName::InputDepth);
+                // Depth is sampled as unfilterable. On Core, the storage formats
+                // that pack into a 32-bit format (R32Float / Rg32Float) are also
+                // unfilterable-float so they don't require `float32-filterable`;
+                // they are only ever point-sampled in production passes.
+                let unfilterable = matches!(self, FsrResourceName::InputDepth)
+                    || (matches!(profile, FormatProfile::Core)
+                        && matches!(
+                            self,
+                            FsrResourceName::NewLocks | FsrResourceName::OutputDilatedMotionVectors
+                        ));
+                let filterable = !unfilterable;
                 wgpu::BindGroupLayoutEntry {
                     binding,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -308,6 +355,7 @@ impl FsrResources {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        format_profile: FormatProfile,
         max_render_size_array: [u32; 2],
         max_upscale_size_array: [u32; 2],
     ) -> Self {
@@ -370,14 +418,19 @@ impl FsrResources {
 
         // Double-buffered resources: current_on_even written on even frames,
         // current_on_odd written on odd frames.
+        // Internal-texture formats are profile-dependent; route them through
+        // `format` so they always match the bind-group-layout formats.
+        let fmt_accumulation = FsrResourceName::AccumulationCurrent.format(format_profile);
+        let fmt_luma = FsrResourceName::Luma.format(format_profile);
+
         let accumulation = DoubleBuffered::new(
-            render_tex("FSR3 Accumulation (even)", wgpu::TextureFormat::R8Unorm),
-            render_tex("FSR3 Accumulation (odd)", wgpu::TextureFormat::R8Unorm),
+            render_tex("FSR3 Accumulation (even)", fmt_accumulation),
+            render_tex("FSR3 Accumulation (odd)", fmt_accumulation),
         );
 
         let luma = DoubleBuffered::new(
-            render_tex("FSR3 Luma (even)", wgpu::TextureFormat::R16Float),
-            render_tex("FSR3 Luma (odd)", wgpu::TextureFormat::R16Float),
+            render_tex("FSR3 Luma (even)", fmt_luma),
+            render_tex("FSR3 Luma (odd)", fmt_luma),
         );
 
         let internal_upscaled = DoubleBuffered::new(
@@ -396,8 +449,7 @@ impl FsrResources {
             render_tex("FSR3 Luma History (odd)", wgpu::TextureFormat::Rgba16Float),
         );
 
-        let intermediate_fp16x1 =
-            render_tex("FSR3 Intermediate FP16x1", wgpu::TextureFormat::R16Float);
+        let intermediate_fp16x1 = render_tex("FSR3 Intermediate FP16x1", fmt_luma);
 
         let shading_change = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("FSR3 Shading Change"),
@@ -405,7 +457,7 @@ impl FsrResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
+            format: FsrResourceName::ShadingChange.format(format_profile),
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -418,7 +470,7 @@ impl FsrResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
+            format: FsrResourceName::NewLocks.format(format_profile),
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
@@ -440,7 +492,7 @@ impl FsrResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R16Float,
+            format: FsrResourceName::FarthestDepthMip1.format(format_profile),
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });

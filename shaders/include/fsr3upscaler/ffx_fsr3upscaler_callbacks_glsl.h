@@ -26,6 +26,36 @@
 #include "ffx_core.h"
 #endif // #if defined(FFX_GPU)
 
+// Storage-texture format profile. Selects the formats used for storage images
+// so the shader matches the device's capabilities. See docs/texture-formats.md.
+//
+//   CORE   - baseline WebGPU: small 1-/2-channel storage formats are
+//            unavailable, so they widen to RGBA (preserving filtering) or pack
+//            into a 32-bit format (for point-sampled / read-write data).
+//   TIER2  - small formats are available; only the SPD mips differ from native.
+//   NATIVE - native adapter formats (the default).
+#define FFX_WGPU_PROFILE_CORE 0
+#define FFX_WGPU_PROFILE_TIER2 1
+#define FFX_WGPU_PROFILE_NATIVE 2
+
+#ifndef FFX_WGPU_FORMAT_PROFILE
+#define FFX_WGPU_FORMAT_PROFILE FFX_WGPU_PROFILE_NATIVE
+#endif
+
+#if FFX_WGPU_FORMAT_PROFILE == FFX_WGPU_PROFILE_CORE
+// Single-channel, linearly sampled -> widen to RGBA to keep hardware filtering.
+#define FSR3_FMT_ACCUM rgba8
+#define FSR3_FMT_LUMA rgba16f
+// Point-sampled -> pack into the smallest 32-bit storage format.
+#define FSR3_FMT_DILATED_MV rg32f
+#define FSR3_FMT_NEW_LOCKS r32f
+#else
+#define FSR3_FMT_ACCUM r8
+#define FSR3_FMT_LUMA r16f
+#define FSR3_FMT_DILATED_MV rg16f
+#define FSR3_FMT_NEW_LOCKS r8
+#endif
+
 #if defined(FFX_GPU)
 #ifndef FFX_PREFER_WAVE64
 #define FFX_PREFER_WAVE64
@@ -462,7 +492,7 @@ FfxFloat32 SampleAccumulation(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_ACCUMULATION)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_ACCUMULATION, r8) writeonly uniform image2D rw_accumulation;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_ACCUMULATION, FSR3_FMT_ACCUM) writeonly uniform image2D rw_accumulation;
 
 void StoreAccumulation(FfxInt32x2 iPxPos, FfxFloat32 fAccumulation)
 {
@@ -485,7 +515,7 @@ FfxFloat32 SampleShadingChange(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_SHADING_CHANGE)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SHADING_CHANGE, r8) writeonly uniform image2D rw_shading_change;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SHADING_CHANGE, FSR3_FMT_ACCUM) writeonly uniform image2D rw_shading_change;
 
 void StoreShadingChange(FfxInt32x2 iPxPos, FfxFloat32 fShadingChange)
 {
@@ -513,7 +543,7 @@ FfxFloat32 SampleFarthestDepth(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH, r16f) writeonly uniform image2D rw_farthest_depth;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH, FSR3_FMT_LUMA) writeonly uniform image2D rw_farthest_depth;
 
 void StoreFarthestDepth(FfxInt32x2 iPxPos, FfxFloat32 fDepth)
 {
@@ -541,7 +571,7 @@ FfxFloat32 SampleFarthestDepthMip1(FfxFloat32x2 fUV)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1, r16f) writeonly uniform image2D rw_farthest_depth_mip1;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_FARTHEST_DEPTH_MIP1, FSR3_FMT_LUMA) writeonly uniform image2D rw_farthest_depth_mip1;
 
 void StoreFarthestDepthMip1(FfxInt32x2 iPxPos, FfxFloat32 fDepth)
 {
@@ -564,7 +594,7 @@ FfxFloat32 SampleCurrentLuma(FfxFloat32x2 uv)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_CURRENT_LUMA)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_CURRENT_LUMA, r16f) writeonly uniform image2D rw_current_luma;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_CURRENT_LUMA, FSR3_FMT_LUMA) writeonly uniform image2D rw_current_luma;
 
 void StoreCurrentLuma(FfxInt32x2 iPxPos, FfxFloat32 fLuma)
 {
@@ -582,7 +612,7 @@ FfxFloat32 SampleLumaInstability(FfxFloat32x2 uv)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY, r16f) writeonly uniform image2D rw_luma_instability;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_LUMA_INSTABILITY, FSR3_FMT_LUMA) writeonly uniform image2D rw_luma_instability;
 
 void StoreLumaInstability(FfxInt32x2 iPxPos, FfxFloat32 fLumaInstability)
 {
@@ -614,7 +644,7 @@ FfxFloat32 LoadNewLocks(FfxInt32x2 iPxPos)
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_NEW_LOCKS)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_NEW_LOCKS, r8) uniform image2D rw_new_locks;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_NEW_LOCKS, FSR3_FMT_NEW_LOCKS) uniform image2D rw_new_locks;
 
 FfxFloat32 LoadRwNewLocks(FfxInt32x2 iPxPos)
 {
@@ -673,7 +703,7 @@ void StoreDilatedDepth(FFX_PARAMETER_IN FfxInt32x2 iPxPos, FFX_PARAMETER_IN FfxF
 #endif
 
 #if defined(FSR3UPSCALER_BIND_UAV_DILATED_MOTION_VECTORS)
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_DILATED_MOTION_VECTORS, rg16f) writeonly uniform image2D rw_dilated_motion_vectors;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_DILATED_MOTION_VECTORS, FSR3_FMT_DILATED_MV) writeonly uniform image2D rw_dilated_motion_vectors;
 
 void StoreDilatedMotionVector(FFX_PARAMETER_IN FfxInt32x2 iPxPos, FFX_PARAMETER_IN FfxFloat32x2 fMotionVector)
 {
