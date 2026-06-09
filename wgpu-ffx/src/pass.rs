@@ -13,6 +13,38 @@ pub(crate) struct FsrPass {
     bgl: wgpu::BindGroupLayout,
 }
 
+/// Create a compute shader module from SPIR-V, using the passthrough path when
+/// the device supports it. Shared by [`FsrPass`] and the Core SPD pyramid.
+pub(crate) fn create_shader_module(
+    device: &wgpu::Device,
+    label: &'static str,
+    spirv: &'static [u8],
+) -> wgpu::ShaderModule {
+    if device
+        .features()
+        .contains(wgpu::Features::PASSTHROUGH_SHADERS)
+    {
+        unsafe {
+            device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
+                label: Some(label),
+                num_workgroups: (0, 0, 0),
+                spirv: Some(Cow::Borrowed(bytemuck::cast_slice(spirv))),
+                dxil: None,
+                msl: None,
+                hlsl: None,
+                glsl: None,
+                wgsl: None,
+                metallib: None,
+            })
+        }
+    } else {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::SpirV(Cow::Borrowed(bytemuck::cast_slice(spirv))),
+        })
+    }
+}
+
 impl FsrPass {
     pub fn new(
         device: &wgpu::Device,
@@ -21,31 +53,7 @@ impl FsrPass {
         format_profile: FormatProfile,
         shaders: &Shaders,
     ) -> Self {
-        let shader_module = if device
-            .features()
-            .contains(wgpu::Features::PASSTHROUGH_SHADERS)
-        {
-            unsafe {
-                device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
-                    label: Some(kind.label()),
-                    num_workgroups: (0, 0, 0),
-                    spirv: Some(Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders)))),
-                    dxil: None,
-                    msl: None,
-                    hlsl: None,
-                    glsl: None,
-                    wgsl: None,
-                    metallib: None,
-                })
-            }
-        } else {
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(kind.label()),
-                source: wgpu::ShaderSource::SpirV(std::borrow::Cow::Borrowed(
-                    bytemuck::cast_slice(kind.shader(shaders)),
-                )),
-            })
-        };
+        let shader_module = create_shader_module(device, kind.label(), kind.shader(shaders));
 
         let resources = kind.resources(flags);
 
