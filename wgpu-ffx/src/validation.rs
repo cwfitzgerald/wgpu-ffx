@@ -7,6 +7,7 @@ use crate::{FsrContextFlags, FsrDispatchInfo, FsrFormats};
 
 /// Errors that can occur during FSR dispatch validation.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FsrDispatchError {
     #[error("Exposure resource provided, but AUTO_EXPOSURE flag is set")]
     ExposureWithAutoExposureFlag,
