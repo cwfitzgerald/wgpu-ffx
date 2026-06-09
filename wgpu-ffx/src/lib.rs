@@ -110,10 +110,23 @@ impl FsrContext {
     /// Compiles all shader pipelines based on the feature flags specified in
     /// `info`. No GPU textures are allocated — use [`FsrContext::create_view`]
     /// to create per-resolution state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a profile forced via [`FsrContextInfo::format_profile`] is
+    /// not supported by the device, naming the missing capability.
     pub fn new(info: FsrContextInfo) -> Self {
-        let format_profile = info
-            .format_profile
-            .unwrap_or_else(|| FormatProfile::from_device(&info.device));
+        let format_profile = match info.format_profile {
+            Some(profile) => {
+                if let Err(missing) = profile.check_support(info.device.features(), |format| {
+                    info.adapter.get_texture_format_features(format)
+                }) {
+                    panic!("forced format profile is unsupported: {missing}");
+                }
+                profile
+            }
+            None => FormatProfile::from_adapter(&info.adapter, &info.device),
+        };
 
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
@@ -252,7 +265,7 @@ impl FsrContext {
 
     /// The [`FormatProfile`] this context was created with (either the value
     /// forced via [`FsrContextInfo::format_profile`] or the one auto-detected
-    /// from the device).
+    /// from the adapter and device).
     pub fn format_profile(&self) -> FormatProfile {
         self.format_profile
     }
@@ -866,7 +879,7 @@ impl FsrView {
         total += upscale_pixels * 8 * 2;
 
         // Fixed-size textures
-        total += 128 * 2; // lanczos2_lut: 128 entries × R16Snorm (2 bytes)
+        total += 128 * 2; // lanczos2_lut: 128 entries × 2 bytes (R16Snorm or R16Float)
         total += 1; // default_reactivity_mask: 1×1 R8Unorm
         total += 8; // default_exposure: 1×1 Rg32Float
         total += 16; // frame_info: vec4<f32> storage buffer
@@ -883,6 +896,9 @@ impl FsrView {
 
 /// Configuration for creating an [`FsrContext`].
 pub struct FsrContextInfo {
+    /// The adapter `device` was created from. Used to query per-format
+    /// capabilities when detecting or validating the format profile.
+    pub adapter: wgpu::Adapter,
     /// The wgpu device to use for GPU operations.
     pub device: wgpu::Device,
     /// Configuration options for the FSR context.
@@ -890,9 +906,10 @@ pub struct FsrContextInfo {
     /// The storage-format profile to drive the device at.
     ///
     /// `None` auto-detects the richest profile the device supports via
-    /// [`FormatProfile::from_device`]. `Some` forces a specific profile (the
-    /// device must support it) — for example to exercise the [`FormatProfile::Core`]
-    /// path on a capable desktop adapter.
+    /// [`FormatProfile::from_adapter`]. `Some` forces a specific profile —
+    /// for example to exercise the [`FormatProfile::Core`] path on a capable
+    /// desktop adapter. [`FsrContext::new`] panics if the forced profile is
+    /// not supported (see [`FormatProfile::supported_by`]).
     pub format_profile: Option<FormatProfile>,
 }
 
@@ -1021,6 +1038,7 @@ fn fsr_smoke() {
     .expect("Failed to create device");
 
     let fsr_context = FsrContext::new(FsrContextInfo {
+        adapter: adapter.clone(),
         device: device.clone(),
         flags: FsrContextFlags::empty(),
         format_profile: None,
@@ -1074,6 +1092,7 @@ fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
 
     // Create FSR context and view
     let fsr_context = FsrContext::new(FsrContextInfo {
+        adapter: adapter.clone(),
         device: device.clone(),
         flags: FsrContextFlags::HIGH_DYNAMIC_RANGE,
         format_profile,
@@ -1236,6 +1255,7 @@ fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
 /// single-pass one.
 #[cfg(test)]
 fn run_one_frame_read_frame_info(
+    adapter: &wgpu::Adapter,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     format_profile: FormatProfile,
@@ -1243,6 +1263,7 @@ fn run_one_frame_read_frame_info(
     upscale_size: [u32; 2],
 ) -> [f32; 4] {
     let fsr_context = FsrContext::new(FsrContextInfo {
+        adapter: adapter.clone(),
         device: device.clone(),
         flags: FsrContextFlags::empty(),
         format_profile: Some(format_profile),
@@ -1430,6 +1451,7 @@ fn fsr_spd_core_matches_native() {
     let upscale_size = [1024u32, 1024u32];
 
     let native = run_one_frame_read_frame_info(
+        &adapter,
         &device,
         &queue,
         FormatProfile::Native,
@@ -1437,6 +1459,7 @@ fn fsr_spd_core_matches_native() {
         upscale_size,
     );
     let core = run_one_frame_read_frame_info(
+        &adapter,
         &device,
         &queue,
         FormatProfile::Core,

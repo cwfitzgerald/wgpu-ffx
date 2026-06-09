@@ -28,10 +28,13 @@ use wgpu_ffx::{FsrContext, FsrContextInfo, FsrContextFlags, FsrDispatchInfo};
 // Create the context once; this compiles all compute pipelines for the given
 // feature flags but allocates no GPU textures.
 let ctx = FsrContext::new(FsrContextInfo {
+    adapter: adapter.clone(),
     device: device.clone(),
     flags: FsrContextFlags::HIGH_DYNAMIC_RANGE
          | FsrContextFlags::DEPTH_INVERTED
          | FsrContextFlags::DEPTH_INFINITE,
+    // Auto-detect the richest storage-format profile the device supports.
+    format_profile: None,
 });
 
 // Create a view for a specific maximum-resolution pair; this allocates all
@@ -69,6 +72,11 @@ and `1.0` is maximum.
 | `exposure` | Texture (optional) | `R32Float` | 1×1 | `TEXTURE_BINDING` |
 | `reactive_mask` | Texture (optional) | `R8Unorm` | render_size | `TEXTURE_BINDING` |
 | `transparency_and_composition` | Texture (optional) | `R8Unorm` | render_size | `TEXTURE_BINDING` |
+
+The formats above are for the `Native`/`Tier2` format profiles; on `Core`,
+`dilated_motion_vectors` widens to `Rg32Float`. Allocate from
+`FsrContext::formats()` (or `FormatProfile::formats()`) instead of hardcoding;
+see `docs/texture-formats.md`.
 
 ## Context flags
 

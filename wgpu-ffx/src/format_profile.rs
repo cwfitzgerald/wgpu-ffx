@@ -17,28 +17,141 @@ pub enum FormatProfile {
     /// limited to the `r32{uint,sint,float}` formats, and 1-/2-channel formats
     /// narrower than 32 bits are unavailable as storage textures.
     Core,
-    /// `texture-formats-tier2` — e.g. Metal through the native tier feature.
-    /// Wide formats gain read-write access; `rg16float` read-write remains
-    /// unavailable.
+    /// The `texture-formats-tier2` capability set. Wide formats gain
+    /// read-write access; `rg16float` read-write remains unavailable. Reached
+    /// today through `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` on adapters
+    /// whose reported capabilities cover the tier-2 set but not `rg16float`
+    /// read-write — notably Metal.
     Tier2,
-    /// Native desktop, relying on `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`.
-    /// Storage support is reported per adapter and is effectively unrestricted.
+    /// Native desktop, relying on `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`
+    /// with the adapter reporting every capability the upscaler uses,
+    /// including `rg16float` read-write storage.
     Native,
 }
 
 impl FormatProfile {
-    /// The richest profile `device` supports.
-    pub fn from_device(device: &wgpu::Device) -> FormatProfile {
-        let features = device.features();
+    /// The richest profile supported by `device`, created from `adapter`.
+    ///
+    /// `Tier2` and `Native` require the device feature
+    /// `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` (wgpu does not yet surface
+    /// `texture-formats-tier1/2` directly). With that feature enabled, wgpu
+    /// validates storage bindings against the capabilities the adapter
+    /// reports per format, so each profile's required capabilities are
+    /// verified through [`wgpu::Adapter::get_texture_format_features`] rather
+    /// than assumed from the feature bit. An adapter that reports everything
+    /// except `rg16float` read-write storage (e.g. Metal) lands on `Tier2`.
+    pub fn from_adapter(adapter: &wgpu::Adapter, device: &wgpu::Device) -> FormatProfile {
+        Self::classify(device.features(), |format| {
+            adapter.get_texture_format_features(format)
+        })
+    }
 
-        if features.contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
-            FormatProfile::Native
-        } else {
-            // `texture-formats-tier2` is not yet surfaced by wgpu. Once it is,
-            // detect it here and return `FormatProfile::Tier2` before falling
-            // back to `Core`.
-            FormatProfile::Core
+    /// Whether `device`, created from `adapter`, can run at this profile.
+    pub fn supported_by(self, adapter: &wgpu::Adapter, device: &wgpu::Device) -> bool {
+        self.check_support(device.features(), |format| {
+            adapter.get_texture_format_features(format)
+        })
+        .is_ok()
+    }
+
+    /// Pure core of [`FormatProfile::from_adapter`], decoupled from live wgpu
+    /// objects so it can be tested against synthetic adapter capabilities.
+    fn classify(
+        device_features: wgpu::Features,
+        adapter_format_features: impl Fn(wgpu::TextureFormat) -> wgpu::TextureFormatFeatures,
+    ) -> FormatProfile {
+        for profile in [FormatProfile::Native, FormatProfile::Tier2] {
+            if profile
+                .check_support(device_features, &adapter_format_features)
+                .is_ok()
+            {
+                return profile;
+            }
         }
+        FormatProfile::Core
+    }
+
+    /// Check every capability this profile requires, describing the first
+    /// missing one. `Core` needs only baseline WebGPU and always passes.
+    pub(crate) fn check_support(
+        self,
+        device_features: wgpu::Features,
+        adapter_format_features: impl Fn(wgpu::TextureFormat) -> wgpu::TextureFormatFeatures,
+    ) -> Result<(), String> {
+        if matches!(self, FormatProfile::Core) {
+            return Ok(());
+        }
+
+        // Without adapter-specific format features, wgpu validates storage
+        // bindings against the WebGPU spec guarantees, where every capability
+        // below is unavailable. Once wgpu surfaces `texture-formats-tier1/2`,
+        // those features become an alternative gate here.
+        if !device_features.contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES) {
+            return Err(format!(
+                "FormatProfile::{self:?} requires the \
+                 TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES device feature"
+            ));
+        }
+
+        for (format, required_flags) in self.format_requirements() {
+            let reported = adapter_format_features(format);
+
+            let missing = required_flags.difference(reported.flags);
+            if !missing.is_empty() {
+                return Err(format!(
+                    "FormatProfile::{self:?} requires {format:?} to support {missing:?}, \
+                     which the adapter does not report"
+                ));
+            }
+
+            let required_usages =
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING;
+            if !reported.allowed_usages.contains(required_usages) {
+                return Err(format!(
+                    "FormatProfile::{self:?} requires {format:?} to allow {:?}, \
+                     which the adapter does not report",
+                    required_usages.difference(reported.allowed_usages)
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// The per-format capabilities this profile requires beyond baseline
+    /// WebGPU, checked against the adapter-reported
+    /// [`wgpu::TextureFormatFeatures`]. Mirrors the internal-texture table in
+    /// `docs/texture-formats.md`.
+    fn format_requirements(self) -> Vec<(wgpu::TextureFormat, wgpu::TextureFormatFeatureFlags)> {
+        use wgpu::TextureFormat as Tf;
+        use wgpu::TextureFormatFeatureFlags as Flags;
+
+        // Shared by Tier2 and Native: accumulation / shading change (r8unorm
+        // write-only, linearly sampled), new locks (r8unorm read-write), luma
+        // and the fp16 intermediates (r16float write-only, linearly sampled),
+        // dilated motion vectors (rg16float write-only, point-sampled).
+        let common = [
+            (
+                Tf::R8Unorm,
+                Flags::FILTERABLE | Flags::STORAGE_WRITE_ONLY | Flags::STORAGE_READ_WRITE,
+            ),
+            (Tf::R16Float, Flags::FILTERABLE | Flags::STORAGE_WRITE_ONLY),
+            (Tf::Rg16Float, Flags::STORAGE_WRITE_ONLY),
+        ];
+
+        // The profiles differ only in the SPD mip chain, which is read-write
+        // and linearly sampled: rg16float on Native, widened to rgba16float
+        // on Tier2.
+        let spd = match self {
+            FormatProfile::Core => return Vec::new(),
+            FormatProfile::Tier2 => (
+                Tf::Rgba16Float,
+                Flags::FILTERABLE | Flags::STORAGE_READ_WRITE,
+            ),
+            FormatProfile::Native => (Tf::Rg16Float, Flags::FILTERABLE | Flags::STORAGE_READ_WRITE),
+        };
+
+        common.into_iter().chain([spd]).collect()
     }
 
     /// The formats a caller must use for the textures it provides to a context
@@ -89,7 +202,146 @@ pub struct FsrFormats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wgpu::TextureFormat;
+    use wgpu::{TextureFormat, TextureFormatFeatureFlags as Flags};
+
+    /// A synthetic adapter that reports `flags` for the formats listed in
+    /// `caps` (and nothing for the rest), with usages that always allow
+    /// sampled + storage binding.
+    fn adapter_caps(
+        caps: &[(TextureFormat, Flags)],
+    ) -> impl Fn(TextureFormat) -> wgpu::TextureFormatFeatures + '_ {
+        move |format| wgpu::TextureFormatFeatures {
+            allowed_usages: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
+            flags: caps
+                .iter()
+                .find(|(f, _)| *f == format)
+                .map(|(_, flags)| *flags)
+                .unwrap_or_else(Flags::empty),
+        }
+    }
+
+    /// Everything the upscaler uses, including `rg16float` read-write — a
+    /// desktop Vulkan/D3D12-style adapter.
+    const NATIVE_CAPS: &[(TextureFormat, Flags)] = &[
+        (
+            TextureFormat::R8Unorm,
+            Flags::FILTERABLE
+                .union(Flags::STORAGE_WRITE_ONLY)
+                .union(Flags::STORAGE_READ_WRITE),
+        ),
+        (
+            TextureFormat::R16Float,
+            Flags::FILTERABLE.union(Flags::STORAGE_WRITE_ONLY),
+        ),
+        (
+            TextureFormat::Rg16Float,
+            Flags::FILTERABLE
+                .union(Flags::STORAGE_WRITE_ONLY)
+                .union(Flags::STORAGE_READ_WRITE),
+        ),
+        (
+            TextureFormat::Rgba16Float,
+            Flags::FILTERABLE
+                .union(Flags::STORAGE_WRITE_ONLY)
+                .union(Flags::STORAGE_READ_WRITE),
+        ),
+    ];
+
+    /// Metal-style: tier-2 capabilities, but no `rg16float` read-write.
+    const METAL_CAPS: &[(TextureFormat, Flags)] = &[
+        (
+            TextureFormat::R8Unorm,
+            Flags::FILTERABLE
+                .union(Flags::STORAGE_WRITE_ONLY)
+                .union(Flags::STORAGE_READ_WRITE),
+        ),
+        (
+            TextureFormat::R16Float,
+            Flags::FILTERABLE.union(Flags::STORAGE_WRITE_ONLY),
+        ),
+        (
+            TextureFormat::Rg16Float,
+            Flags::FILTERABLE.union(Flags::STORAGE_WRITE_ONLY),
+        ),
+        (
+            TextureFormat::Rgba16Float,
+            Flags::FILTERABLE
+                .union(Flags::STORAGE_WRITE_ONLY)
+                .union(Flags::STORAGE_READ_WRITE),
+        ),
+    ];
+
+    const ADAPTER_SPECIFIC: wgpu::Features =
+        wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+
+    #[test]
+    fn core_without_adapter_specific_feature() {
+        // Capabilities alone are not enough: without the device feature, wgpu
+        // validates against spec guarantees, so detection must stay on Core.
+        assert_eq!(
+            FormatProfile::classify(wgpu::Features::empty(), adapter_caps(NATIVE_CAPS)),
+            FormatProfile::Core
+        );
+    }
+
+    #[test]
+    fn native_with_full_capabilities() {
+        assert_eq!(
+            FormatProfile::classify(ADAPTER_SPECIFIC, adapter_caps(NATIVE_CAPS)),
+            FormatProfile::Native
+        );
+    }
+
+    #[test]
+    fn tier2_when_rg16float_read_write_missing() {
+        assert_eq!(
+            FormatProfile::classify(ADAPTER_SPECIFIC, adapter_caps(METAL_CAPS)),
+            FormatProfile::Tier2
+        );
+    }
+
+    #[test]
+    fn core_when_small_format_storage_missing() {
+        // The feature bit alone must not imply Native (or Tier2): an adapter
+        // reporting no extra per-format capabilities falls back to Core.
+        assert_eq!(
+            FormatProfile::classify(ADAPTER_SPECIFIC, adapter_caps(&[])),
+            FormatProfile::Core
+        );
+    }
+
+    #[test]
+    fn check_support_names_missing_capability() {
+        let err = FormatProfile::Native
+            .check_support(ADAPTER_SPECIFIC, adapter_caps(METAL_CAPS))
+            .unwrap_err();
+        assert!(err.contains("Rg16Float"), "{err}");
+        assert!(err.contains("STORAGE_READ_WRITE"), "{err}");
+    }
+
+    #[test]
+    fn check_support_requires_storage_binding_usage() {
+        let no_storage_usage = |format: TextureFormat| wgpu::TextureFormatFeatures {
+            allowed_usages: wgpu::TextureUsages::TEXTURE_BINDING,
+            ..adapter_caps(NATIVE_CAPS)(format)
+        };
+        let err = FormatProfile::Native
+            .check_support(ADAPTER_SPECIFIC, no_storage_usage)
+            .unwrap_err();
+        assert!(err.contains("STORAGE_BINDING"), "{err}");
+    }
+
+    #[test]
+    fn core_always_supported() {
+        assert!(
+            FormatProfile::Core
+                .check_support(wgpu::Features::empty(), adapter_caps(&[]))
+                .is_ok()
+        );
+    }
 
     #[test]
     fn dilated_motion_vectors_widen_on_core() {

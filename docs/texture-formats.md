@@ -43,18 +43,26 @@ restrictive to least:
 | Profile  | Capability source | Read-write storage | Small-format storage |
 |----------|-------------------|--------------------|----------------------|
 | `Core`   | `core-features-and-limits` only | `r32uint/sint/float` only | none (must widen or pack) |
-| `Tier2`  | `texture-formats-tier2` | wide formats gain read-write (e.g. `rgba16float`); `rg16float` read-write still impossible | `r8`/`r16f`/`rg16f` available |
-| `Native` | `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` | adapter-reported, effectively unrestricted | adapter-reported |
+| `Tier2`  | adapter-reported capabilities covering the tier-2 set (`texture-formats-tier2` once wgpu surfaces it) | wide formats gain read-write (e.g. `rgba16float`); `rg16float` read-write still impossible | `r8`/`r16f`/`rg16f` available |
+| `Native` | `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` with full adapter-reported capabilities | adapter-reported, effectively unrestricted | adapter-reported |
 
-`FormatProfile::from_device` inspects a `wgpu::Device` and returns the richest
-profile the device supports. The profile can also be set explicitly when
-constructing a context (see [Public API](#public-api)); forcing `Core` on a
-capable device is the supported way to exercise the baseline path.
+`FormatProfile::from_adapter` inspects a `wgpu::Adapter`/`wgpu::Device` pair
+and returns the richest profile the device supports. `Tier2` and `Native` both
+require the `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` device feature (wgpu
+does not yet surface `texture-formats-tier1/2`), but the feature bit alone is
+not trusted: with it enabled, wgpu validates storage bindings against what the
+adapter reports per format, so detection checks each profile's required
+capabilities through `Adapter::get_texture_format_features`. The profile can
+also be set explicitly when constructing a context (see
+[Public API](#public-api)); forcing `Core` on a capable device is the
+supported way to exercise the baseline path, and forcing an unsupported
+profile panics naming the missing capability.
 
-`Tier2` corresponds to running on an adapter (notably Metal) through the native
-tier feature. It differs from `Native` in exactly one place — the SPD mip chain
-(see [Special cases](#special-cases)) — because `rg16float` read-write is
-unavailable even at tier 2.
+`Tier2` is what an adapter lands on when its reported capabilities cover
+everything except `rg16float` read-write storage — notably Metal, where that
+combination is unsupported at every Metal read-write tier. It differs from
+`Native` in exactly one place — the SPD mip chain (see
+[Special cases](#special-cases)).
 
 ## Internal storage textures
 
@@ -165,8 +173,11 @@ full `Core` variant set plus an SPD-specific `Tier2` variant.
 pub enum FormatProfile { Core, Tier2, Native }
 
 impl FormatProfile {
-    /// The richest profile a device supports.
-    pub fn from_device(device: &wgpu::Device) -> FormatProfile;
+    /// The richest profile a device supports, verified against the
+    /// capabilities the adapter reports per format.
+    pub fn from_adapter(adapter: &wgpu::Adapter, device: &wgpu::Device) -> FormatProfile;
+    /// Whether the device can run at this profile.
+    pub fn supported_by(self, adapter: &wgpu::Adapter, device: &wgpu::Device) -> bool;
     /// The formats a caller must use for the textures it provides.
     pub fn formats(self) -> FsrFormats;
 }
@@ -183,10 +194,11 @@ pub struct FsrFormats {
 }
 
 pub struct FsrContextInfo {
+    pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub flags: FsrContextFlags,
-    /// `None` auto-detects via `FormatProfile::from_device`; `Some` forces a
-    /// profile (the device must support it).
+    /// `None` auto-detects via `FormatProfile::from_adapter`; `Some` forces a
+    /// profile (`FsrContext::new` panics if it is unsupported).
     pub format_profile: Option<FormatProfile>,
 }
 

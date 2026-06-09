@@ -27,14 +27,20 @@ and shader variants the device actually supports:
 
 - **`Core`** — baseline WebGPU (`core-features-and-limits`). Works in the
   browser; the crate now builds for `wasm32-unknown-unknown` (CI-verified).
-- **`Tier2`** — `texture-formats-tier2` (e.g. Metal). Not yet auto-detected
-  (wgpu does not surface the feature); can be forced via
-  `FsrContextInfo::format_profile`.
-- **`Native`** — adapter-specific format features; unchanged behavior.
+- **`Tier2`** — the `texture-formats-tier2` capability set. Auto-detected on
+  adapters whose reported capabilities cover the tier-2 set but not
+  `rg16float` read-write storage — notably Metal.
+- **`Native`** — adapter-specific format features with full reported
+  capabilities; unchanged behavior.
+
+Detection does not trust `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` alone:
+each profile's required per-format capabilities are verified through
+`Adapter::get_texture_format_features` before the profile is selected.
 
 ### Added
 
-- `FormatProfile` with `FormatProfile::from_device` detection.
+- `FormatProfile` with `FormatProfile::from_adapter` detection and
+  `FormatProfile::supported_by`.
 - `FsrFormats` — the formats the caller must use for each texture it
   provides. Obtainable before a context exists via `FormatProfile::formats()`,
   or from a live context via `FsrContext::formats()`.
@@ -42,12 +48,15 @@ and shader variants the device actually supports:
 
 ### Changed
 
-- Breaking: `FsrContextInfo` gained a `format_profile: Option<FormatProfile>`
+- Breaking: `FsrContextInfo` gained an `adapter: wgpu::Adapter` field (used to
+  query per-format capabilities) and a `format_profile: Option<FormatProfile>`
   field. `None` auto-detects; `Some` forces a profile (e.g. to exercise
-  `Core` on a desktop adapter).
+  `Core` on a desktop adapter). `FsrContext::new` panics if a forced profile
+  is unsupported, naming the missing capability.
 
   ```diff
    FsrContextInfo {
+  +    adapter,
        device,
        flags,
   +    format_profile: None,
@@ -63,7 +72,7 @@ and shader variants the device actually supports:
   the active profile before recording any GPU work.
 
   ```diff
-  +let formats = FormatProfile::from_device(&device).formats();
+  +let formats = FormatProfile::from_adapter(&adapter, &device).formats();
   +// or, with a live context: context.formats()
    device.create_texture(&wgpu::TextureDescriptor {
   -    format: wgpu::TextureFormat::Rg16Float,
