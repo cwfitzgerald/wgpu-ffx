@@ -20,6 +20,79 @@ Per Keep a Changelog there are 6 main categories of changes:
 
 ## Unreleased
 
+FSR3 no longer requires `TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`. Devices
+are classified into a `FormatProfile` (`Core` | `Tier2` | `Native`),
+auto-detected at context creation, and the upscaler selects storage formats
+and shader variants the device actually supports:
+
+- **`Core`** — baseline WebGPU (`core-features-and-limits`). Works in the
+  browser; the crate now builds for `wasm32-unknown-unknown` (CI-verified).
+- **`Tier2`** — `texture-formats-tier2` (e.g. Metal). Not yet auto-detected
+  (wgpu does not surface the feature); can be forced via
+  `FsrContextInfo::format_profile`.
+- **`Native`** — adapter-specific format features; unchanged behavior.
+
+### Added
+
+- `FormatProfile` with `FormatProfile::from_device` detection.
+- `FsrFormats` — the formats the caller must use for each texture it
+  provides. Obtainable before a context exists via `FormatProfile::formats()`,
+  or from a live context via `FsrContext::formats()`.
+- `FsrContext::format_profile()` — the profile the context was created with.
+
+### Changed
+
+- Breaking: `FsrContextInfo` gained a `format_profile: Option<FormatProfile>`
+  field. `None` auto-detects; `Some` forces a profile (e.g. to exercise
+  `Core` on a desktop adapter).
+
+  ```diff
+   FsrContextInfo {
+       device,
+       flags,
+  +    format_profile: None,
+   }
+  ```
+
+- Breaking: caller texture formats are profile-dependent and validated.
+  `dilated_motion_vectors` is `Rg32Float` on `Core` (vs `Rg16Float`
+  elsewhere). Allocate your textures from `FsrFormats` instead of
+  hardcoding — it covers all six caller-provided textures (`color`, `depth`,
+  `motion_vectors`, `output`, `dilated_depth`, `dilated_motion_vectors`).
+  `FsrContext::dispatch` now validates every caller-provided texture against
+  the active profile before recording any GPU work.
+
+  ```diff
+  +let formats = FormatProfile::from_device(&device).formats();
+  +// or, with a live context: context.formats()
+   device.create_texture(&wgpu::TextureDescriptor {
+  -    format: wgpu::TextureFormat::Rg16Float,
+  +    format: formats.dilated_motion_vectors,
+       ..
+   })
+  ```
+
+- Breaking: `FsrDispatchError` is now `#[non_exhaustive]` and gained a
+  `TextureFormatMismatch { texture, expected, actual }` variant. Exhaustive
+  matches need a wildcard arm.
+
+  ```diff
+   match err {
+  +    FsrDispatchError::TextureFormatMismatch { texture, expected, actual } => ..,
+  +    _ => ..,
+       ..
+   }
+  ```
+
+- Internal (no action needed):
+  - Per-frame metadata moved from a 1×1 read-write storage texture to a
+    storage buffer.
+  - On `Core`, the luma / shading-change pyramids run as a write-only
+    multi-pass chain instead of single-pass SPD; scene-average luma and
+    auto-exposure match Native closely (covered by comparison tests).
+  - Store-only storage images are now declared `writeonly` (a correctness
+    improvement on all profiles).
+
 ## v0.1.0
 
 Released 2026-04-21
