@@ -56,6 +56,16 @@
 #define FSR3_FMT_NEW_LOCKS r8
 #endif
 
+// SPD mips are the exception to the core-vs-rest split: rg16f read-write storage
+// is impossible at every tier, so only Native keeps rg16f. Both Core and Tier2
+// widen to rgba16f (Tier2 retains FFX's single-pass read-write SPD; Core uses a
+// write-only mip chain). See docs/texture-formats.md.
+#if FFX_WGPU_FORMAT_PROFILE == FFX_WGPU_PROFILE_NATIVE
+#define FSR3_FMT_SPD rg16f
+#else
+#define FSR3_FMT_SPD rgba16f
+#endif
+
 #if defined(FFX_GPU)
 #ifndef FFX_PREFER_WAVE64
 #define FFX_PREFER_WAVE64
@@ -322,6 +332,13 @@ FfxInt32x2 GetSPDMipDimensions(FfxUInt32 uMipLevel)
 FfxFloat32x2 SampleSPDMipLevel(FfxFloat32x2 fUV, FfxUInt32 mipLevel)
 {
     return textureLod(sampler2D(r_spd_mips, s_LinearClamp), fUV, float(mipLevel)).rg;
+}
+
+// Point load of the bound SPD mip (used by the Core write-only mip chain, which
+// binds a single mip level as the SRV and reads it with texelFetch).
+FfxFloat32x2 LoadSpdMip(FfxInt32x2 iPxPos)
+{
+    return texelFetch(r_spd_mips, iPxPos, 0).rg;
 }
 #endif
 
@@ -887,12 +904,12 @@ FfxFloat32x4 FrameInfo()
     defined(FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_4) && \
     defined(FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_5)
 
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_0, rg16f) uniform image2D rw_spd_mip0;
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_1, rg16f) uniform image2D rw_spd_mip1;
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_2, rg16f) uniform image2D rw_spd_mip2;
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_3, rg16f) uniform image2D rw_spd_mip3;
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_4, rg16f) uniform image2D rw_spd_mip4;
-layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_5, rg16f) coherent uniform image2D rw_spd_mip5;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_0, FSR3_FMT_SPD) uniform image2D rw_spd_mip0;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_1, FSR3_FMT_SPD) uniform image2D rw_spd_mip1;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_2, FSR3_FMT_SPD) uniform image2D rw_spd_mip2;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_3, FSR3_FMT_SPD) uniform image2D rw_spd_mip3;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_4, FSR3_FMT_SPD) uniform image2D rw_spd_mip4;
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIPS_LEVEL_5, FSR3_FMT_SPD) coherent uniform image2D rw_spd_mip5;
 
 FfxFloat32x2 RWLoadPyramid(FFX_PARAMETER_IN FfxInt32x2 iPxPos, FFX_PARAMETER_IN FfxUInt32 index)
 {
@@ -929,6 +946,35 @@ void StorePyramid(FFX_PARAMETER_IN FfxInt32x2 iPxPos, FFX_PARAMETER_IN FfxFloat3
     STORE(5);
 
 #undef STORE
+}
+#endif
+
+// Core write-only mip chain: a single destination mip level, bound write-only.
+// Each dispatch reads the previous level via the SPD_MIPS SRV (LoadSpdMip) and
+// writes the next level here. See docs/texture-formats.md and spd_core.rs.
+#if defined(FSR3UPSCALER_BIND_UAV_SPD_MIP_DEST)
+layout(set = 0, binding = FSR3UPSCALER_BIND_UAV_SPD_MIP_DEST, FSR3_FMT_SPD) writeonly uniform image2D rw_spd_mip_dest;
+
+void StoreSpdMipDest(FfxInt32x2 iPxPos, FfxFloat32x2 outValue)
+{
+    imageStore(rw_spd_mip_dest, iPxPos, FfxFloat32x4(outValue, 0.0, 0.0));
+}
+#endif
+
+// Core write-only mip chain: the source mip level read by the generic
+// downsample pass. The destination level is `uSrcLevel + 1`. Backed by a small
+// constant-index uniform buffer (one slot per level); the shader derives the
+// per-level texel dimensions from this and `RenderSize()`.
+#if defined(FSR3UPSCALER_BIND_CB_SPD_CORE)
+layout(set = 0, binding = FSR3UPSCALER_BIND_CB_SPD_CORE, std140) uniform cbSpdCore_t
+{
+    FfxUInt32 uSrcLevel;
+}
+spdCore;
+
+FfxUInt32 SpdCoreSrcLevel()
+{
+    return spdCore.uSrcLevel;
 }
 #endif
 

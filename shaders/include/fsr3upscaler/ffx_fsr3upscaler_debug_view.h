@@ -62,7 +62,12 @@ void drawDilatedMotionVectors(FfxInt32x2 iPxPos, FfxDebugViewport vp)
 
     FfxFloat32x2 fUv_HW = ClampUv(fUv, RenderSize(), MaxRenderSize());
 
-    FfxFloat32x2 fMotionVector = SampleDilatedMotionVector(fUv_HW);
+    // Point load rather than a linear sample: on the Core profile the dilated
+    // motion vectors are Rg32Float bound unfilterable, so a filtered sample would
+    // require the float32-filterable feature. This is the only linear sample of
+    // the dilated MV anywhere. See docs/texture-formats.md.
+    FfxFloat32x2 fMotionVector =
+        LoadDilatedMotionVector(FfxInt32x2(fUv_HW * FfxFloat32x2(MaxRenderSize())));
 
     StoreUpscaledOutput(iPxPos, getMotionVectorColor(fMotionVector));
 }
@@ -115,7 +120,11 @@ void drawDilatedDepthInMeters(FfxInt32x2 iPxPos, FfxDebugViewport vp)
 
     FfxFloat32x2 fUv_HW = ClampUv(fUv, RenderSize(), MaxRenderSize());
 
-    const FfxFloat32 fDilatedDepth = SampleDilatedDepth(fUv_HW);
+    // Point load rather than a linear sample: dilated depth is R32Float, so a
+    // filtered sample would require the float32-filterable feature (absent on a
+    // baseline Core device). See docs/texture-formats.md.
+    const FfxFloat32 fDilatedDepth =
+        LoadDilatedDepth(FfxInt32x2(fUv_HW * FfxFloat32x2(MaxRenderSize())));
     const FfxFloat32 fDepthInMeters = GetViewSpaceDepthInMeters(fDilatedDepth);
 
     StoreUpscaledOutput(iPxPos, FfxFloat32x3(ffxSaturate(fDepthInMeters / 25.0f), 0, 0));

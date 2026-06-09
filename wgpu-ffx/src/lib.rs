@@ -33,6 +33,7 @@ mod pass;
 mod rcas;
 mod resources;
 mod spd;
+mod spd_core;
 mod validation;
 
 use std::mem;
@@ -69,9 +70,9 @@ pub struct FsrContext {
     pass_accumulate: pass::FsrPass,
     pass_accumulate_sharpen: pass::FsrPass,
     pass_rcas: pass::FsrPass,
-    pass_luma_pyramid: pass::FsrPass,
+    pass_luma_pyramid: spd_core::SpdPyramid,
     // pass_generate_reactive: pass::FsrPass,
-    pass_shading_change_pyramid: pass::FsrPass,
+    pass_shading_change_pyramid: spd_core::SpdPyramid,
     pass_luma_instability: pass::FsrPass,
     pass_debug_view: pass::FsrPass,
 
@@ -113,15 +114,6 @@ impl FsrContext {
         let format_profile = info
             .format_profile
             .unwrap_or_else(|| FormatProfile::from_device(&info.device));
-
-        // The `Core` and `Tier2` profiles require storage-format fallbacks and
-        // the matching shader variants, which are not yet built. Only `Native`
-        // is wired up today.
-        assert!(
-            matches!(format_profile, FormatProfile::Native),
-            "FormatProfile::{format_profile:?} is not yet implemented; \
-             only FormatProfile::Native is currently supported"
-        );
 
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
@@ -201,9 +193,9 @@ impl FsrContext {
             format_profile,
             &shaders,
         );
-        let pass_luma_pyramid = pass::FsrPass::new(
+        let pass_luma_pyramid = spd_core::SpdPyramid::new(
             &info.device,
-            pass::FsrPassKind::LumaPyramid,
+            spd_core::SpdPyramidKind::Luma,
             info.flags,
             format_profile,
             &shaders,
@@ -214,9 +206,9 @@ impl FsrContext {
         //     info.flags,
         //     &shaders,
         // );
-        let pass_shading_change_pyramid = pass::FsrPass::new(
+        let pass_shading_change_pyramid = spd_core::SpdPyramid::new(
             &info.device,
-            pass::FsrPassKind::ShadingChangePyramid,
+            spd_core::SpdPyramidKind::ShadingChange,
             info.flags,
             format_profile,
             &shaders,
@@ -477,9 +469,8 @@ impl FsrContext {
             (fsrc.render_size[0] / 2).div_ceil(thread_group_work_region_dim);
         let workgroups_shading_change_y =
             (fsrc.render_size[1] / 2).div_ceil(thread_group_work_region_dim);
-        let spd_thread_group_work_region_dim = 64;
-        let workgroups_spd_x = info.render_size[0].div_ceil(spd_thread_group_work_region_dim);
-        let workgroups_spd_y = info.render_size[1].div_ceil(spd_thread_group_work_region_dim);
+        // The SPD pyramids compute their own dispatch dimensions from the render
+        // size (the Core profile issues a per-mip chain rather than one dispatch).
 
         let error_scope_guard = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         // Clear reconstructed depth for max depth store.
@@ -608,8 +599,7 @@ impl FsrContext {
             info,
             self.flags,
             view.frame_kind,
-            workgroups_spd_x,
-            workgroups_spd_y,
+            info.render_size,
         );
         self.pass_shading_change_pyramid.dispatch(
             &self.device,
@@ -618,8 +608,7 @@ impl FsrContext {
             info,
             self.flags,
             view.frame_kind,
-            workgroups_spd_x,
-            workgroups_spd_y,
+            info.render_size,
         );
         self.pass_shading_change.dispatch(
             &self.device,
@@ -851,17 +840,22 @@ impl FsrView {
         // farthest_depth_mip1: R16Float at half render size
         total += half_render_pixels * 2;
 
-        // spd_mips: Rg16Float with mip chain at half render size
+        // spd_mips mip chain at half render size. Native stores Rg16Float
+        // (4 bytes/texel); Core and Tier2 widen to Rgba16Float (8 bytes/texel).
         let half_render_extent = wgpu::Extent3d {
             width: hrw,
             height: hrh,
             depth_or_array_layers: 1,
         };
+        let spd_bytes_per_texel: u64 = match self.format_profile {
+            FormatProfile::Native => 4,
+            FormatProfile::Core | FormatProfile::Tier2 => 8,
+        };
         let mip_count = half_render_extent.max_mips(wgpu::TextureDimension::D2);
         let mut mip_w = hrw;
         let mut mip_h = hrh;
         for _ in 0..mip_count {
-            total += mip_w as u64 * mip_h as u64 * 4; // Rg16Float = 4 bytes
+            total += mip_w as u64 * mip_h as u64 * spd_bytes_per_texel;
             mip_w = (mip_w / 2).max(1);
             mip_h = (mip_h / 2).max(1);
         }
@@ -879,6 +873,9 @@ impl FsrView {
 
         // Buffers
         total += 4; // spd_atomic_counter: 4 bytes
+        // spd_level_buffer: one 256-byte-aligned slot per SPD mip level (Core
+        // write-only chain). Built from max_render / 2's mip count.
+        total += mip_count as u64 * 256;
 
         total
     }
@@ -1034,6 +1031,25 @@ fn fsr_smoke() {
 
 #[test]
 fn fsr_dispatch_smoke() {
+    // Auto-detected profile (Native on a desktop adapter).
+    run_dispatch_smoke(None);
+}
+
+#[test]
+fn fsr_dispatch_smoke_tier2() {
+    // Force the Tier2 profile. Its caller formats match Native; only the
+    // internal SPD mips widen to rgba16float (single-pass SPD retained).
+    run_dispatch_smoke(Some(FormatProfile::Tier2));
+}
+
+#[test]
+fn fsr_dispatch_smoke_core() {
+    // Force the Core profile (baseline-WebGPU formats, valid on native adapters
+    // too). Exercises the write-only SPD mip chain.
+    run_dispatch_smoke(Some(FormatProfile::Core));
+}
+
+fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
     // Setup device and queue
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
@@ -1060,8 +1076,11 @@ fn fsr_dispatch_smoke() {
     let fsr_context = FsrContext::new(FsrContextInfo {
         device: device.clone(),
         flags: FsrContextFlags::HIGH_DYNAMIC_RANGE,
-        format_profile: None,
+        format_profile,
     });
+
+    // Allocate the caller-provided textures using the profile's required formats.
+    let formats = fsr_context.formats();
 
     let mut view = fsr_context.create_view(&queue, render_size, upscale_size);
 
@@ -1076,7 +1095,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
+        format: formats.color,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -1091,7 +1110,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
+        format: formats.depth,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -1106,7 +1125,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rg16Float,
+        format: formats.motion_vectors,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -1122,7 +1141,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R32Float,
+        format: formats.dilated_depth,
         usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -1137,7 +1156,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rg16Float,
+        format: formats.dilated_motion_vectors,
         usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -1152,7 +1171,7 @@ fn fsr_dispatch_smoke() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
+        format: formats.output,
         usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -1209,4 +1228,241 @@ fn fsr_dispatch_smoke() {
         // Submit the command buffer
         queue.submit([encoder.finish()]);
     }
+}
+
+/// Run one reset frame with a fixed gradient color input under `format_profile`
+/// and read back the SPD-produced frame info `[exposure, logLuma, sceneAvgLuma,
+/// _]`. Used to compare the Core write-only SPD pyramid against the Native
+/// single-pass one.
+#[cfg(test)]
+fn run_one_frame_read_frame_info(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    format_profile: FormatProfile,
+    render_size: [u32; 2],
+    upscale_size: [u32; 2],
+) -> [f32; 4] {
+    let fsr_context = FsrContext::new(FsrContextInfo {
+        device: device.clone(),
+        flags: FsrContextFlags::empty(),
+        format_profile: Some(format_profile),
+    });
+    let formats = fsr_context.formats();
+    let mut view = fsr_context.create_view(queue, render_size, upscale_size);
+
+    let extent = wgpu::Extent3d {
+        width: render_size[0],
+        height: render_size[1],
+        depth_or_array_layers: 1,
+    };
+    let tex = |label, format, usage| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+
+    let color = tex(
+        "cmp_color",
+        formats.color,
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+
+    // A deterministic horizontal luminance gradient (the same fp16 data for every
+    // profile), so the SPD scene-average reduction has something non-trivial and
+    // identical to reduce.
+    let mut texels = vec![half::f16::ZERO; (render_size[0] * render_size[1] * 4) as usize];
+    for y in 0..render_size[1] {
+        for x in 0..render_size[0] {
+            let v = half::f16::from_f32(0.1 + 2.9 * (x as f32 / render_size[0] as f32));
+            let base = ((y * render_size[0] + x) * 4) as usize;
+            texels[base] = v;
+            texels[base + 1] = v;
+            texels[base + 2] = v;
+            texels[base + 3] = half::f16::from_f32(1.0);
+        }
+    }
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &color,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytemuck::cast_slice(&texels),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(render_size[0] * 4 * 2),
+            rows_per_image: Some(render_size[1]),
+        },
+        extent,
+    );
+
+    let depth = tex(
+        "cmp_depth",
+        formats.depth,
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+    let motion_vectors = tex(
+        "cmp_mv",
+        formats.motion_vectors,
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+    let dilated_depth = tex(
+        "cmp_dilated_depth",
+        formats.dilated_depth,
+        wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    let dilated_motion_vectors = tex(
+        "cmp_dilated_mv",
+        formats.dilated_motion_vectors,
+        wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    let output = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("cmp_output"),
+        size: wgpu::Extent3d {
+            width: upscale_size[0],
+            height: upscale_size[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: formats.output,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let reconstructed_previous_depth = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("cmp_recon_depth"),
+        size: (render_size[0] * render_size[1] * 4) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("cmp_frame_info_readback"),
+        size: 16,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let dispatch_info = FsrDispatchInfo {
+        color,
+        depth,
+        motion_vectors,
+        exposure: None,
+        reactive_mask: None,
+        transparency_and_composition: None,
+        dilated_depth,
+        dilated_motion_vectors,
+        reconstructed_previous_depth,
+        output,
+        jitter_offset: [0.0, 0.0],
+        motion_vector_scale: [1.0, 1.0],
+        render_size,
+        upscale_size,
+        enable_sharpening: false,
+        sharpness: 0.0,
+        frame_time_delta: 16.6,
+        pre_exposure: 1.0,
+        reset_history: true,
+        camera_near: 0.1,
+        camera_far: 1000.0,
+        camera_fov_y: std::f32::consts::FRAC_PI_3,
+        view_space_to_meters_factor: 1.0,
+        flags: FsrDispatchFlags::empty(),
+    };
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("cmp_encoder"),
+    });
+    fsr_context
+        .dispatch(&mut view, &mut encoder, &dispatch_info)
+        .expect("FSR dispatch failed");
+    encoder.copy_buffer_to_buffer(&view.resources.frame_info, 0, &staging, 0, 16);
+    queue.submit([encoder.finish()]);
+
+    staging.slice(..).map_async(wgpu::MapMode::Read, |r| {
+        r.expect("map frame_info");
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("poll");
+
+    let mapped = staging.slice(..).get_mapped_range();
+    let frame_info: [f32; 4] = *bytemuck::from_bytes(&mapped[..16]);
+    drop(mapped);
+    staging.unmap();
+    frame_info
+}
+
+/// The Core write-only SPD pyramid should produce a scene-average luma (and thus
+/// auto-exposure) very close to the Native single-pass SPD for identical input.
+#[test]
+fn fsr_spd_core_matches_native() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+        .expect("Failed to find an appropriate adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: adapter.features(),
+        required_limits: adapter.limits(),
+        memory_hints: wgpu::MemoryHints::default(),
+        experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
+        trace: wgpu::Trace::Off,
+        label: None,
+    }))
+    .expect("Failed to create device");
+
+    // Power-of-two, multiple-of-64 dimensions: FFX's single-pass SPD reduces
+    // these exactly (no tile zero-padding bias), so its scene average is a true
+    // mean to compare the Core write-only chain against. render == max avoids any
+    // max-vs-actual padding.
+    let render_size = [512u32, 512u32];
+    let upscale_size = [1024u32, 1024u32];
+
+    let native = run_one_frame_read_frame_info(
+        &device,
+        &queue,
+        FormatProfile::Native,
+        render_size,
+        upscale_size,
+    );
+    let core = run_one_frame_read_frame_info(
+        &device,
+        &queue,
+        FormatProfile::Core,
+        render_size,
+        upscale_size,
+    );
+
+    eprintln!("native frame_info = {native:?}");
+    eprintln!("core   frame_info = {core:?}");
+
+    // frame_info = [exposure, logLuma, sceneAvgLuma, _].
+    let scene_avg_native = native[2];
+    let scene_avg_core = core[2];
+    let exposure_native = native[0];
+    let exposure_core = core[0];
+
+    let rel = |a: f32, b: f32| (a - b).abs() / a.abs().max(b.abs()).max(1e-6);
+
+    assert!(
+        rel(scene_avg_native, scene_avg_core) < 0.02,
+        "scene-average luma diverged between Native and Core: \
+         native={scene_avg_native}, core={scene_avg_core}"
+    );
+    assert!(
+        rel(exposure_native, exposure_core) < 0.02,
+        "auto-exposure diverged between Native and Core: \
+         native={exposure_native}, core={exposure_core}"
+    );
 }

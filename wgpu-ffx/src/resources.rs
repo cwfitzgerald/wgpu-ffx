@@ -163,9 +163,17 @@ impl FsrResourceName {
             }
             FsrResourceName::InternalUpscaledCurrent
             | FsrResourceName::InternalUpscaledPrevious => Tf::Rgba16Float,
-            // TODO(format-profile): the SPD mips widen to Rgba16Float on
-            // Core/Tier2 as part of the SPD restructure.
-            FsrResourceName::SpdMips => Tf::Rg16Float,
+            // `rg16float` read-write storage is impossible at every tier, so the
+            // SPD mips only stay `rg16float` on Native. Core and Tier2 both widen
+            // to `rgba16float` (Tier2 keeps the single-pass read-write SPD; Core
+            // uses the write-only mip chain). Matches FSR3_FMT_SPD in the GLSL.
+            FsrResourceName::SpdMips => {
+                if matches!(profile, FormatProfile::Native) {
+                    Tf::Rg16Float
+                } else {
+                    Tf::Rgba16Float
+                }
+            }
             FsrResourceName::LumaHistoryCurrent | FsrResourceName::LumaHistoryPrevious => {
                 Tf::Rgba16Float
             }
@@ -305,12 +313,18 @@ impl FsrResourceName {
                 // Depth is sampled as unfilterable. On Core, the storage formats
                 // that pack into a 32-bit format (R32Float / Rg32Float) are also
                 // unfilterable-float so they don't require `float32-filterable`;
-                // they are only ever point-sampled in production passes.
+                // they are only ever point-sampled in production passes. Exposure
+                // (Rg32Float, point-loaded via texelFetch only) is the same case:
+                // a filterable binding would reject the 32-bit format on a
+                // baseline device that lacks `float32-filterable`.
                 let unfilterable = matches!(self, FsrResourceName::InputDepth)
                     || (matches!(profile, FormatProfile::Core)
                         && matches!(
                             self,
-                            FsrResourceName::NewLocks | FsrResourceName::OutputDilatedMotionVectors
+                            FsrResourceName::NewLocks
+                                | FsrResourceName::OutputDilatedMotionVectors
+                                | FsrResourceName::InputExposure
+                                | FsrResourceName::OutputDilatedDepth
                         ));
                 let filterable = !unfilterable;
                 wgpu::BindGroupLayoutEntry {
@@ -338,6 +352,13 @@ pub(crate) struct FsrResources {
     pub(crate) new_locks: wgpu::Texture,
     pub(crate) internal_upscaled: DoubleBuffered,
     pub(crate) spd_mips: wgpu::Texture,
+    /// Per-level source-index uniform for the Core write-only SPD chain. One
+    /// 256-byte-aligned slot per mip level, slot `k` holding the `u32` value `k`.
+    /// Static (resolution-independent); the downsample shader derives the
+    /// per-level texel dimensions from the level index and `RenderSize()`.
+    pub(crate) spd_level_buffer: wgpu::Buffer,
+    /// Byte stride between [`Self::spd_level_buffer`] slots.
+    pub(crate) spd_level_slot_size: u64,
     pub(crate) farthest_depth_mip1: wgpu::Texture,
     pub(crate) luma_history: DoubleBuffered,
     pub(crate) spd_atomic_counter: wgpu::Buffer,
@@ -481,9 +502,27 @@ impl FsrResources {
             mip_level_count: half_max_render_size.max_mips(wgpu::TextureDimension::D2),
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rg16Float,
+            format: FsrResourceName::SpdMips.format(format_profile),
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
+        });
+
+        // Per-level source-index uniform for the Core write-only SPD chain. One
+        // 256-byte-aligned slot per physical mip level, each holding its level
+        // index; bound at a per-dispatch offset. Resolution-independent, so it is
+        // built once here.
+        let spd_level_slot_size =
+            (device.limits().min_uniform_buffer_offset_alignment as u64).max(4);
+        let spd_level_count = half_max_render_size.max_mips(wgpu::TextureDimension::D2) as u64;
+        let mut spd_level_data = vec![0u8; (spd_level_slot_size * spd_level_count) as usize];
+        for level in 0..spd_level_count {
+            let slot = (level * spd_level_slot_size) as usize;
+            spd_level_data[slot..slot + 4].copy_from_slice(&(level as u32).to_le_bytes());
+        }
+        let spd_level_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("FSR3 SPD Core Level Indices"),
+            contents: &spd_level_data,
+            usage: wgpu::BufferUsages::UNIFORM,
         });
 
         let farthest_depth_mip1 = device.create_texture(&wgpu::TextureDescriptor {
@@ -567,7 +606,11 @@ impl FsrResources {
         let frame_info = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("FSR3 Frame Info"),
             size: 4 * std::mem::size_of::<f32>() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            // COPY_SRC so tests can read back the auto-exposure / scene-average
+            // luma to compare the SPD pyramids across format profiles.
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
@@ -602,6 +645,8 @@ impl FsrResources {
             new_locks,
             internal_upscaled,
             spd_mips,
+            spd_level_buffer,
+            spd_level_slot_size,
             farthest_depth_mip1,
             luma_history,
             spd_atomic_counter,
