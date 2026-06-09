@@ -28,7 +28,9 @@ pico-args = "0.5"
 rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2"
-toml = "1.0"
+# preserve_order: permutation enums and `choose_shaders` parameters follow
+# perm.toml declaration order rather than alphabetical key order.
+toml = { version = "1.0", features = ["preserve_order"] }
 log = "0.4"
 xshell = "0.2"
 wgpu = { version = "29", default-features = false }

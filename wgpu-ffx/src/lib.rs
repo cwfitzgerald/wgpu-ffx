@@ -126,31 +126,31 @@ impl FsrContext {
 
         let flags = info.flags;
         let shaders = wgpu_ffx_shaders_spv::fsr3upscaler::choose_shaders(
+            Half::Off,
+            Wave64::Off,
+            // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
+            // since we don't query this from wgpu yet, default to reference (Off).
+            Fsr3upscalerOptionReprojectUseLanczosType::Off,
             if flags.contains(FsrContextFlags::HIGH_DYNAMIC_RANGE) {
                 Fsr3upscalerOptionHdrColorInput::On
             } else {
                 Fsr3upscalerOptionHdrColorInput::Off
-            },
-            if flags.contains(FsrContextFlags::DEPTH_INVERTED) {
-                Fsr3upscalerOptionInvertedDepth::On
-            } else {
-                Fsr3upscalerOptionInvertedDepth::Off
-            },
-            if flags.contains(FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION) {
-                Fsr3upscalerOptionJitteredMotionVectors::On
-            } else {
-                Fsr3upscalerOptionJitteredMotionVectors::Off
             },
             if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
                 Fsr3upscalerOptionLowResolutionMotionVectors::Off
             } else {
                 Fsr3upscalerOptionLowResolutionMotionVectors::On
             },
-            // LUT vs reference lanczos. LUT is used on GPUs with 32-64 wave lane range;
-            // since we don't query this from wgpu yet, default to reference (Off).
-            Fsr3upscalerOptionReprojectUseLanczosType::Off,
-            Half::Off,
-            Wave64::Off,
+            if flags.contains(FsrContextFlags::MOTION_VECTORS_JITTER_CANCELLATION) {
+                Fsr3upscalerOptionJitteredMotionVectors::On
+            } else {
+                Fsr3upscalerOptionJitteredMotionVectors::Off
+            },
+            if flags.contains(FsrContextFlags::DEPTH_INVERTED) {
+                Fsr3upscalerOptionInvertedDepth::On
+            } else {
+                Fsr3upscalerOptionInvertedDepth::Off
+            },
         );
 
         let pass_prepare_inputs = pass::FsrPass::new(

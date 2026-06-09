@@ -47,11 +47,30 @@ struct FieldPermutationConfig {
     suffix: String,
 }
 
+/// One `[permutations]` entry: either a plain value list whose variant names
+/// are derived (`[0, 1]` -> Off/On), or explicit variant-name -> define-value
+/// pairs (`{ Core = 0, Tier2 = 1, Native = 2 }`) in declaration order.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PermutationSpec {
+    Values(Vec<toml::Value>),
+    Named(IndexMap<String, toml::Value>),
+}
+
+impl PermutationSpec {
+    fn values(&self) -> Vec<&toml::Value> {
+        match self {
+            PermutationSpec::Values(values) => values.iter().collect(),
+            PermutationSpec::Named(map) => map.values().collect(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ShaderPermutationConfig {
     path: ShaderPathConfig,
     base: IndexMap<String, toml::Value>,
-    permutations: IndexMap<String, Vec<toml::Value>>,
+    permutations: IndexMap<String, PermutationSpec>,
     #[serde(default)]
     field_permutations: IndexMap<String, FieldPermutationConfig>,
 }
@@ -173,8 +192,43 @@ fn load_shader_config(config_path: &Utf8Path) -> Result<ShaderPermutationConfig>
     let content = fs::read_to_string(config_path)
         .map_err(|e| anyhow::anyhow!("Failed to read shader config {config_path}: {e}"))?;
 
-    toml::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Failed to parse shader config {config_path}: {e}"))
+    let config: ShaderPermutationConfig = toml::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse shader config {config_path}: {e}"))?;
+
+    for (define_name, spec) in &config.permutations {
+        if let PermutationSpec::Named(map) = spec {
+            for name in map.keys() {
+                if !is_valid_variant_name(name) {
+                    return Err(anyhow::anyhow!(
+                        "{config_path}: variant name `{name}` of {define_name} \
+                        is not a valid Rust identifier"
+                    ));
+                }
+            }
+        }
+        let values: Vec<String> = spec
+            .values()
+            .into_iter()
+            .map(toml_value_to_define_string)
+            .collect();
+        let unique: BTreeSet<&str> = values.iter().map(String::as_str).collect();
+        if unique.len() != values.len() {
+            return Err(anyhow::anyhow!(
+                "{config_path}: duplicate values in permutation {define_name}: {values:?}"
+            ));
+        }
+    }
+
+    Ok(config)
+}
+
+/// Valid as a Rust enum variant: an XID-start-ish ASCII identifier.
+fn is_valid_variant_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn discover_shader_configs() -> Result<Vec<ShaderConfig>> {
@@ -307,15 +361,15 @@ fn generate_permutations_for_config(
 ) -> Vec<ShaderPermutation> {
     // Both regular and field permutations participate in the cartesian product.
     let mut all_define_names: Vec<&str> = Vec::new();
-    let mut all_value_arrays: Vec<&[toml::Value]> = Vec::new();
+    let mut all_value_arrays: Vec<Vec<&toml::Value>> = Vec::new();
 
-    for (name, values) in &config.permutations {
+    for (name, spec) in &config.permutations {
         all_define_names.push(name);
-        all_value_arrays.push(values);
+        all_value_arrays.push(spec.values());
     }
     for (name, fc) in &config.field_permutations {
         all_define_names.push(name);
-        all_value_arrays.push(&fc.values);
+        all_value_arrays.push(fc.values.iter().collect());
     }
 
     let sizes: Vec<usize> = all_value_arrays.iter().map(|v| v.len()).collect();
@@ -337,7 +391,7 @@ fn generate_permutations_for_config(
             let mut permutation_id = shader_stem.to_string();
 
             for (i, &idx) in indices.iter().enumerate() {
-                let value_str = toml_value_to_define_string(&all_value_arrays[i][idx]);
+                let value_str = toml_value_to_define_string(all_value_arrays[i][idx]);
                 permutation_id.push('_');
                 permutation_id.push_str(&value_str);
                 defines.push((all_define_names[i].to_string(), value_str));
@@ -664,16 +718,27 @@ fn build_permutation_params(config: &ShaderPermutationConfig) -> Vec<Permutation
     config
         .permutations
         .iter()
-        .map(|(define_name, values)| {
-            let variant_names = variant_names_for_values(values);
-            let variants = values
-                .iter()
-                .zip(variant_names)
-                .map(|(v, name)| PermVariant {
-                    define_value: toml_value_to_define_string(v),
-                    variant_name: name,
-                })
-                .collect();
+        .map(|(define_name, spec)| {
+            let variants = match spec {
+                PermutationSpec::Values(values) => {
+                    let variant_names = variant_names_for_values(values);
+                    values
+                        .iter()
+                        .zip(variant_names)
+                        .map(|(v, name)| PermVariant {
+                            define_value: toml_value_to_define_string(v),
+                            variant_name: name,
+                        })
+                        .collect()
+                }
+                PermutationSpec::Named(map) => map
+                    .iter()
+                    .map(|(name, v)| PermVariant {
+                        define_value: toml_value_to_define_string(v),
+                        variant_name: name.clone(),
+                    })
+                    .collect(),
+            };
 
             PermutationParam {
                 enum_name: define_to_enum_name(define_name),
@@ -719,6 +784,9 @@ fn toml_value_to_define_string(value: &toml::Value) -> String {
 }
 
 /// `[0, 1]` -> `["Off", "On"]`, `[0]` -> `["Off"]`, otherwise `["Value0", "Value1", ...]`.
+///
+/// Defines whose values are not a simple on/off toggle should use the
+/// [`PermutationSpec::Named`] form instead of relying on the fallback names.
 fn variant_names_for_values(values: &[toml::Value]) -> Vec<String> {
     let strs: Vec<String> = values.iter().map(toml_value_to_define_string).collect();
     if strs == ["0", "1"] {
