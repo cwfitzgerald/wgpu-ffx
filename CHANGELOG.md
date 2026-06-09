@@ -72,6 +72,10 @@ and shader variants the device actually supports:
    })
   ```
 
+- The internal Lanczos2 LUT uses `r16snorm` only when the device has the
+  `TEXTURE_FORMAT_16BIT_NORM` feature enabled (independent of the format
+  profile); otherwise it widens to filterable `r16float`.
+
 - Breaking: `FsrDispatchError` is now `#[non_exhaustive]` and gained a
   `TextureFormatMismatch { texture, expected, actual }` variant. Exhaustive
   matches need a wildcard arm.

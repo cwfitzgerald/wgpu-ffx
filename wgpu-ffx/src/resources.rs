@@ -181,7 +181,9 @@ impl FsrResourceName {
                 panic!("SpdAtomicCount is a buffer")
             }
             FsrResourceName::DilatedReactiveMasks => Tf::Rgba8Unorm,
-            FsrResourceName::Lanczos2Lut => Tf::R16Snorm,
+            FsrResourceName::Lanczos2Lut => {
+                panic!("Lanczos2Lut format depends on device features, not the profile")
+            }
             FsrResourceName::DefaultReactivityMask => Tf::R8Unorm,
             FsrResourceName::DefaultExposure => Tf::Rg32Float,
             FsrResourceName::FrameInfo => {
@@ -549,6 +551,29 @@ impl FsrResources {
             wgpu::TextureFormat::Rgba8Unorm,
         );
 
+        // `r16snorm` requires the `TEXTURE_FORMAT_16BIT_NORM` device feature,
+        // independent of the format profile (the LUT is sampled-only, so no
+        // storage capability is involved). Without it the LUT widens to
+        // filterable half floats and the upload converts the snorm values.
+        let lanczos2_lut_format = if device
+            .features()
+            .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+        {
+            wgpu::TextureFormat::R16Snorm
+        } else {
+            wgpu::TextureFormat::R16Float
+        };
+        let lanczos2_lut_f16_data: Vec<half::f16>;
+        let lanczos2_lut_bytes: &[u8] = match lanczos2_lut_format {
+            wgpu::TextureFormat::R16Float => {
+                lanczos2_lut_f16_data = lanczos2_lut_data
+                    .iter()
+                    .map(|&v| half::f16::from_f32(f32::from(v) / 32767.0))
+                    .collect();
+                bytemuck::cast_slice(&lanczos2_lut_f16_data)
+            }
+            _ => bytemuck::cast_slice(&lanczos2_lut_data),
+        };
         let lanczos2_lut = device.create_texture_with_data(
             queue,
             &wgpu::TextureDescriptor {
@@ -561,12 +586,12 @@ impl FsrResources {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R16Snorm,
+                format: lanczos2_lut_format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::default(),
-            bytemuck::cast_slice(&lanczos2_lut_data),
+            lanczos2_lut_bytes,
         );
 
         // This needs to be initialized to zero, but wgpu does this for us.
