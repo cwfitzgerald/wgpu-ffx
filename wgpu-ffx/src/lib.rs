@@ -371,6 +371,46 @@ impl FsrContext {
         )
     }
 
+    /// Zero every mip level of a color texture using full-subresource render-pass
+    /// clears (`LoadOp::Clear` of all-zero).
+    ///
+    /// This replaces `CommandEncoder::clear_texture`, which is `unimplemented!()`
+    /// on wgpu's `webgpu` backend (the JS WebGPU API has no texture-clear command)
+    /// and additionally requires `Features::CLEAR_TEXTURE` natively. A render-pass
+    /// clear is format-agnostic and works on every backend/profile, provided the
+    /// texture is color-renderable and carries `RENDER_ATTACHMENT` usage (all the
+    /// textures cleared here are: `r8unorm`/`rgba8unorm` accumulation and
+    /// `rg16float`/`rgba16float` SPD mips, all baseline-WebGPU color-renderable).
+    ///
+    /// A render-pass color attachment targets a single mip level, so textures with
+    /// a mip chain (the SPD mips) get one clear pass per level.
+    fn clear_color_texture(encoder: &mut wgpu::CommandEncoder, texture: &wgpu::Texture) {
+        for mip in 0..texture.mip_level_count() {
+            let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("FSR3 clear view"),
+                base_mip_level: mip,
+                mip_level_count: Some(1),
+                ..Default::default()
+            });
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("FSR3 clear pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+    }
+
     /// Record the FSR3 upscaling compute passes into the provided command encoder.
     ///
     /// Validates `info` parameters, updates `view`'s internal state, and records
@@ -485,6 +525,7 @@ impl FsrContext {
         // The SPD pyramids compute their own dispatch dimensions from the render
         // size (the Core profile issues a per-mip chain rather than one dispatch).
 
+        #[cfg(not(target_arch = "wasm32"))]
         let error_scope_guard = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         // Clear reconstructed depth for max depth store.
         if reset_accumulation {
@@ -505,16 +546,13 @@ impl FsrContext {
                 },
             ];
             for access in zeroed_resources {
-                let OwnedBindingResource::View(accumulation_texture) =
+                let OwnedBindingResource::View(texture_view) =
                     view.resources.to_view(info, access, view.frame_kind)
                 else {
                     unreachable!()
                 };
 
-                encoder.clear_texture(
-                    accumulation_texture.texture(),
-                    &wgpu::ImageSubresourceRange::default(),
-                );
+                Self::clear_color_texture(encoder, texture_view.texture());
             }
 
             let clear_values_frame_info = [-1.0f32, 1.0, 0.0, 0.0];
@@ -579,11 +617,14 @@ impl FsrContext {
             mem::size_of::<constants::Constants>() as wgpu::BufferAddress,
         );
 
-        encoder.clear_texture(
-            &view.resources.spd_mips,
-            &wgpu::ImageSubresourceRange::default(),
-        );
+        Self::clear_color_texture(encoder, &view.resources.spd_mips);
 
+        // Drain the validation error scope synchronously on native so a clearing
+        // bug fails loudly. On wasm this is impossible — error scopes resolve via
+        // JS promises and `dispatch` must stay synchronous — so the scope is not
+        // pushed at all there; validation errors surface through wgpu's default
+        // uncaptured-error handler (console.error).
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(err) = pollster::block_on(error_scope_guard.pop()) {
             panic!("Error during Clearing: {err}");
         }

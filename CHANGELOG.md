@@ -106,6 +106,21 @@ each profile's required per-format capabilities are verified through
   - Store-only storage images are now declared `writeonly` (a correctness
     improvement on all profiles).
 
+### Fixed
+
+- `FsrContext::dispatch` now runs on wgpu's `webgpu` backend (Chromium WebGPU),
+  fixing two runtime panics that only surfaced in the browser:
+  - Internal textures are zeroed with render-pass clears (`LoadOp::Clear`)
+    instead of `CommandEncoder::clear_texture`, which is unimplemented on the
+    `webgpu` backend and required `Features::CLEAR_TEXTURE` natively. The SPD
+    mips texture gained `RENDER_ATTACHMENT` usage; the clear value is unchanged
+    (all-zero) and `Features::CLEAR_TEXTURE` is no longer needed.
+  - The validation error scope around the clears is now popped synchronously
+    only on native (it surfaces clearing bugs via a panic there). The previous
+    `pollster::block_on` cannot run on wasm, where error scopes resolve through
+    JS promises; on wasm the scope is skipped and errors surface through wgpu's
+    default uncaptured-error handler.
+
 ## v0.1.0
 
 Released 2026-04-21

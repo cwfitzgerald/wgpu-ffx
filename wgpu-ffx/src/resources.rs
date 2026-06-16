@@ -505,7 +505,13 @@ impl FsrResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: FsrResourceName::SpdMips.format(format_profile),
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            // RENDER_ATTACHMENT so each mip can be zeroed with a render-pass clear
+            // (`CommandEncoder::clear_texture` is unimplemented on the webgpu
+            // backend). `Rg16Float`/`Rgba16Float` are both color-renderable in
+            // baseline WebGPU. See `FsrContext::clear_color_texture`.
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 
