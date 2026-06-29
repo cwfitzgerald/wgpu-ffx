@@ -43,7 +43,7 @@ use wgpu_ffx_shaders_spv::fsr3upscaler::*;
 
 use crate::{
     constants::FsrConstants,
-    pass::ResourceAccess,
+    pass::{ResourceAccess, ShaderDelivery},
     resources::{FsrResourceName, OwnedBindingResource},
 };
 
@@ -128,6 +128,12 @@ impl FsrContext {
             None => FormatProfile::from_adapter(&info.adapter, &info.device),
         };
 
+        // How this backend consumes our SPIR-V. `PASSTHROUGH_SHADERS` being
+        // present does not imply the active backend accepts SPIR-V passthrough
+        // (only Vulkan does); other backends route through naga. This also
+        // governs whether the coherent single-pass SPD shader can be compiled.
+        let delivery = ShaderDelivery::for_backend(info.adapter.get_info().backend, &info.device);
+
         let buffer_clearer = clear_buffer::BufferClearer::new(&info.device);
 
         let flags = info.flags;
@@ -166,6 +172,7 @@ impl FsrContext {
 
         let pass_prepare_inputs = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::PrepareInputs,
             info.flags,
             format_profile,
@@ -173,6 +180,7 @@ impl FsrContext {
         );
         let pass_prepare_reactivity = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::PrepareReactivity,
             info.flags,
             format_profile,
@@ -180,6 +188,7 @@ impl FsrContext {
         );
         let pass_shading_change = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::ShadingChange,
             info.flags,
             format_profile,
@@ -187,6 +196,7 @@ impl FsrContext {
         );
         let pass_accumulate = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::Accumulate,
             info.flags,
             format_profile,
@@ -194,6 +204,7 @@ impl FsrContext {
         );
         let pass_accumulate_sharpen = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::AccumulateSharpen,
             info.flags,
             format_profile,
@@ -201,6 +212,7 @@ impl FsrContext {
         );
         let pass_rcas = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::Rcas,
             info.flags,
             format_profile,
@@ -208,6 +220,7 @@ impl FsrContext {
         );
         let pass_luma_pyramid = spd_core::SpdPyramid::new(
             &info.device,
+            delivery,
             spd_core::SpdPyramidKind::Luma,
             info.flags,
             format_profile,
@@ -215,12 +228,14 @@ impl FsrContext {
         );
         // let pass_generate_reactive = pass::FsrPass::new(
         //     &info.device,
+        //     delivery,
         //     pass::FsrPassKind::GenerateReactive,
         //     info.flags,
         //     &shaders,
         // );
         let pass_shading_change_pyramid = spd_core::SpdPyramid::new(
             &info.device,
+            delivery,
             spd_core::SpdPyramidKind::ShadingChange,
             info.flags,
             format_profile,
@@ -228,6 +243,7 @@ impl FsrContext {
         );
         let pass_luma_instability = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::LumaInstability,
             info.flags,
             format_profile,
@@ -235,6 +251,7 @@ impl FsrContext {
         );
         let pass_debug_view = pass::FsrPass::new(
             &info.device,
+            delivery,
             pass::FsrPassKind::DebugView,
             info.flags,
             format_profile,
@@ -1483,6 +1500,24 @@ fn fsr_spd_core_matches_native() {
         label: None,
     }))
     .expect("Failed to create device");
+
+    // This test pits the Core write-only chain against the single-pass SPD
+    // reference, which only exists on an adapter that both supports the
+    // `Native` profile (`rg16float` read-write storage) and can run the
+    // `coherent`-storage-image single-pass shader (the SPIR-V passthrough
+    // path). Metal satisfies neither, so there is no single-pass reference to
+    // compare against — skip rather than force an unsupported profile.
+    let delivery = ShaderDelivery::for_backend(adapter.get_info().backend, &device);
+    if !FormatProfile::Native.supported_by(&adapter, &device)
+        || !delivery.supports_single_pass_spd()
+    {
+        eprintln!(
+            "skipping fsr_spd_core_matches_native: adapter has no single-pass SPD reference \
+             (backend = {:?})",
+            adapter.get_info().backend
+        );
+        return;
+    }
 
     // Power-of-two, multiple-of-64 dimensions: FFX's single-pass SPD reduces
     // these exactly (no tile zero-padding bias), so its scene average is a true

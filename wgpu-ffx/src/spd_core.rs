@@ -7,14 +7,21 @@
 //! a sampled texture and writes the next as a write-only `rgba16float` storage
 //! texture. See `docs/texture-formats.md`.
 //!
+//! The single-pass SPD additionally decorates its read-write storage *image*
+//! `coherent`, which naga rejects (memory decorations are only valid in the
+//! `storage` address space), so it is only usable on the SPIR-V passthrough
+//! path. Backends that consume the SPIR-V through naga (e.g. Metal) therefore
+//! use the write-only chain at every profile, not just `Core`.
+//!
 //! The mode difference is hidden behind [`SpdPyramid`]: Tier2/Native keep the
-//! single-pass [`FsrPass`], Core uses [`CoreSpdPyramid`], and both expose the
-//! same [`SpdPyramid::dispatch`] so the caller (`lib.rs`) is identical for every
+//! single-pass [`FsrPass`] when the backend can compile it, Core (and any naga
+//! backend) uses [`CoreSpdPyramid`], and both expose the same
+//! [`SpdPyramid::dispatch`] so the caller (`lib.rs`) is identical for every
 //! profile.
 
 use crate::{
     FormatProfile, FrameKind, FsrContextFlags, FsrDispatchInfo,
-    pass::{FsrPass, FsrPassKind, ResourceAccess, create_shader_module},
+    pass::{FsrPass, FsrPassKind, ResourceAccess, ShaderDelivery, create_shader_module},
     resources::{AccessType, FsrResourceName, FsrResources, OwnedBindingResource},
 };
 use wgpu_ffx_shaders_spv::fsr3upscaler::Shaders;
@@ -51,22 +58,40 @@ pub(crate) enum SpdPyramid {
 impl SpdPyramid {
     pub fn new(
         device: &wgpu::Device,
+        delivery: ShaderDelivery,
         kind: SpdPyramidKind,
         flags: FsrContextFlags,
         format_profile: FormatProfile,
         shaders: &Shaders,
     ) -> Self {
-        match format_profile {
-            FormatProfile::Core => {
-                SpdPyramid::Core(CoreSpdPyramid::new(device, kind, format_profile, shaders))
-            }
-            FormatProfile::Tier2 | FormatProfile::Native => SpdPyramid::Single(FsrPass::new(
+        // The single-pass SPD relies on a `coherent` read-write storage image,
+        // which only the SPIR-V passthrough path can compile (see
+        // [`ShaderDelivery::supports_single_pass_spd`]). `Core` always uses the
+        // write-only chain; the other profiles use it too when the backend
+        // can't run the single-pass shader (e.g. Metal via naga). `SpdMips` is
+        // `rgba16float` on both `Core` and `Tier2`, so the Core chain's
+        // write-only shaders bind correctly under `Tier2` as well. `Native`'s
+        // `rg16float` SPD is only reachable on Vulkan, which keeps the single
+        // pass, so the chain is never asked to run against `rg16float`.
+        let use_single_pass =
+            !matches!(format_profile, FormatProfile::Core) && delivery.supports_single_pass_spd();
+        if use_single_pass {
+            SpdPyramid::Single(FsrPass::new(
                 device,
+                delivery,
                 kind.single_pass_kind(),
                 flags,
                 format_profile,
                 shaders,
-            )),
+            ))
+        } else {
+            SpdPyramid::Core(CoreSpdPyramid::new(
+                device,
+                delivery,
+                kind,
+                format_profile,
+                shaders,
+            ))
         }
     }
 
@@ -219,6 +244,7 @@ pub(crate) struct CoreSpdPyramid {
 impl CoreSpdPyramid {
     fn new(
         device: &wgpu::Device,
+        delivery: ShaderDelivery,
         kind: SpdPyramidKind,
         profile: FormatProfile,
         shaders: &Shaders,
@@ -228,6 +254,7 @@ impl CoreSpdPyramid {
 
         let downsample = CorePass::new(
             device,
+            delivery,
             "FSR3 SPD Downsample (Core)",
             shaders.spd_downsample_core,
             profile,
@@ -245,6 +272,7 @@ impl CoreSpdPyramid {
             SpdPyramidKind::Luma => {
                 let mip0 = CorePass::new(
                     device,
+                    delivery,
                     "FSR3 Luma Pyramid mip0 (Core)",
                     shaders.luma_pyramid_core_mip0,
                     profile,
@@ -260,6 +288,7 @@ impl CoreSpdPyramid {
                 );
                 let final_pass = CorePass::new(
                     device,
+                    delivery,
                     "FSR3 Luma Pyramid auto-exposure (Core)",
                     shaders.luma_pyramid_core_final,
                     profile,
@@ -276,6 +305,7 @@ impl CoreSpdPyramid {
             SpdPyramidKind::ShadingChange => {
                 let mip0 = CorePass::new(
                     device,
+                    delivery,
                     "FSR3 Shading Change Pyramid mip0 (Core)",
                     shaders.shading_change_pyramid_core_mip0,
                     profile,
@@ -382,6 +412,7 @@ struct BindParams {
 impl CorePass {
     fn new(
         device: &wgpu::Device,
+        delivery: ShaderDelivery,
         label: &'static str,
         spirv: &'static [u8],
         profile: FormatProfile,
@@ -404,7 +435,7 @@ impl CorePass {
             immediate_size: 0,
         });
 
-        let module = create_shader_module(device, label, spirv);
+        let module = create_shader_module(device, delivery, label, spirv);
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(label),

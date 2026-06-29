@@ -13,18 +13,61 @@ pub(crate) struct FsrPass {
     bgl: wgpu::BindGroupLayout,
 }
 
+/// How a [`wgpu::Device`] consumes the crate's SPIR-V shaders.
+///
+/// `PASSTHROUGH_SHADERS` being present does *not* mean the active backend
+/// accepts SPIR-V passthrough — wgpu's passthrough is per-language and only the
+/// Vulkan backend consumes the `spirv` slot (DX12 wants DXIL/HLSL, Metal wants
+/// MSL/metallib). Every other backend must route the SPIR-V through naga
+/// instead. This is derived once from the adapter backend and threaded into
+/// pipeline creation so the choice is made in exactly one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShaderDelivery {
+    /// The backend consumes our SPIR-V directly via
+    /// [`wgpu::Device::create_shader_module_passthrough`] (Vulkan).
+    SpirvPassthrough,
+    /// The SPIR-V is handed to naga for translation to the backend's native
+    /// language (Metal/MSL, GL/GLSL, …) via [`wgpu::ShaderSource::SpirV`].
+    Naga,
+}
+
+impl ShaderDelivery {
+    /// Pick the delivery mode for `backend`. Only the Vulkan backend consumes
+    /// the SPIR-V passthrough slot, and only when the device actually enabled
+    /// `PASSTHROUGH_SHADERS`; everything else goes through naga.
+    pub(crate) fn for_backend(backend: wgpu::Backend, device: &wgpu::Device) -> ShaderDelivery {
+        let passthrough = device
+            .features()
+            .contains(wgpu::Features::PASSTHROUGH_SHADERS);
+        if backend == wgpu::Backend::Vulkan && passthrough {
+            ShaderDelivery::SpirvPassthrough
+        } else {
+            ShaderDelivery::Naga
+        }
+    }
+
+    /// Whether this delivery mode can compile FFX's single-pass SPD shaders,
+    /// which decorate a read-write storage *image* `coherent` for cross-
+    /// workgroup reads. naga rejects memory decorations on anything but the
+    /// `storage` address space (an `image` is `Handle`-space), so the
+    /// single-pass SPD is only usable on the passthrough path; naga backends
+    /// must fall back to the write-only Core mip chain.
+    pub(crate) fn supports_single_pass_spd(self) -> bool {
+        matches!(self, ShaderDelivery::SpirvPassthrough)
+    }
+}
+
 /// Create a compute shader module from SPIR-V, using the passthrough path when
-/// the device supports it. Shared by [`FsrPass`] and the Core SPD pyramid.
+/// the active backend consumes SPIR-V passthrough (Vulkan) and otherwise
+/// routing through naga. Shared by [`FsrPass`] and the Core SPD pyramid.
 pub(crate) fn create_shader_module(
     device: &wgpu::Device,
+    delivery: ShaderDelivery,
     label: &'static str,
     spirv: &'static [u8],
 ) -> wgpu::ShaderModule {
-    if device
-        .features()
-        .contains(wgpu::Features::PASSTHROUGH_SHADERS)
-    {
-        unsafe {
+    match delivery {
+        ShaderDelivery::SpirvPassthrough => unsafe {
             device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
                 label: Some(label),
                 num_workgroups: (0, 0, 0),
@@ -36,24 +79,25 @@ pub(crate) fn create_shader_module(
                 wgsl: None,
                 metallib: None,
             })
-        }
-    } else {
-        device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        },
+        ShaderDelivery::Naga => device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(bytemuck::cast_slice(spirv))),
-        })
+        }),
     }
 }
 
 impl FsrPass {
     pub fn new(
         device: &wgpu::Device,
+        delivery: ShaderDelivery,
         kind: FsrPassKind,
         flags: FsrContextFlags,
         format_profile: FormatProfile,
         shaders: &Shaders,
     ) -> Self {
-        let shader_module = create_shader_module(device, kind.label(), kind.shader(shaders));
+        let shader_module =
+            create_shader_module(device, delivery, kind.label(), kind.shader(shaders));
 
         let resources = kind.resources(flags);
 
