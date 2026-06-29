@@ -312,22 +312,37 @@ impl FsrResourceName {
                 }
             }
             (_, AccessType::Srv) => {
-                // Depth is sampled as unfilterable. On Core, the storage formats
-                // that pack into a 32-bit format (R32Float / Rg32Float) are also
-                // unfilterable-float so they don't require `float32-filterable`;
-                // they are only ever point-sampled in production passes. Exposure
-                // (Rg32Float, point-loaded via texelFetch only) is the same case:
-                // a filterable binding would reject the 32-bit format on a
-                // baseline device that lacks `float32-filterable`.
-                let unfilterable = matches!(self, FsrResourceName::InputDepth)
-                    || (matches!(profile, FormatProfile::Core)
-                        && matches!(
-                            self,
-                            FsrResourceName::NewLocks
-                                | FsrResourceName::OutputDilatedMotionVectors
-                                | FsrResourceName::InputExposure
-                                | FsrResourceName::OutputDilatedDepth
-                        ));
+                // A `Float` SRV must be bound `filterable: false` whenever its
+                // texture is a 32-bit float format the device cannot filter
+                // without `float32-filterable` (R32Float / Rg32Float). wgpu
+                // checks this at bind-group creation against the bound view's
+                // format, independent of whether the device happens to have the
+                // feature, so the layout must match the worst case.
+                //
+                // These three are 32-bit float at *every* profile and are only
+                // ever point-loaded (`texelFetch` / indexing — no sampler), so
+                // they are unfilterable everywhere:
+                //   - InputDepth (caller depth, point-sampled),
+                //   - InputExposure (Rg32Float; `r_input_exposure` is read only
+                //     via `texelFetch`),
+                //   - OutputDilatedDepth (R32Float; read only via
+                //     `LoadDilatedDepth`/`texelFetch` — the linear-sampling
+                //     `SampleDilatedDepth` helper is dead code, never called).
+                //
+                // On Core, the storage formats that additionally pack into a
+                // 32-bit format (NewLocks → R32Float, dilated motion vectors →
+                // Rg32Float) become unfilterable too; on Tier2/Native those stay
+                // narrow (R8Unorm / Rg16Float) and remain filterable.
+                let unfilterable = matches!(
+                    self,
+                    FsrResourceName::InputDepth
+                        | FsrResourceName::InputExposure
+                        | FsrResourceName::OutputDilatedDepth
+                ) || (matches!(profile, FormatProfile::Core)
+                    && matches!(
+                        self,
+                        FsrResourceName::NewLocks | FsrResourceName::OutputDilatedMotionVectors
+                    ));
                 let filterable = !unfilterable;
                 wgpu::BindGroupLayoutEntry {
                     binding,

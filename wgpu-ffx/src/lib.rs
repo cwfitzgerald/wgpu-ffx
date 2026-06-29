@@ -1108,24 +1108,57 @@ fn fsr_smoke() {
 #[test]
 fn fsr_dispatch_smoke() {
     // Auto-detected profile (Native on a desktop adapter).
-    run_dispatch_smoke(None);
+    run_dispatch_smoke(
+        None,
+        FsrContextFlags::HIGH_DYNAMIC_RANGE,
+        wgpu::Features::empty(),
+    );
 }
 
 #[test]
 fn fsr_dispatch_smoke_tier2() {
     // Force the Tier2 profile. Its caller formats match Native; only the
     // internal SPD mips widen to rgba16float (single-pass SPD retained).
-    run_dispatch_smoke(Some(FormatProfile::Tier2));
+    run_dispatch_smoke(
+        Some(FormatProfile::Tier2),
+        FsrContextFlags::HIGH_DYNAMIC_RANGE,
+        wgpu::Features::empty(),
+    );
 }
 
 #[test]
 fn fsr_dispatch_smoke_core() {
     // Force the Core profile (baseline-WebGPU formats, valid on native adapters
     // too). Exercises the write-only SPD mip chain.
-    run_dispatch_smoke(Some(FormatProfile::Core));
+    run_dispatch_smoke(
+        Some(FormatProfile::Core),
+        FsrContextFlags::HIGH_DYNAMIC_RANGE,
+        wgpu::Features::empty(),
+    );
 }
 
-fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
+#[test]
+fn fsr_dispatch_smoke_auto_exposure() {
+    // AUTO_EXPOSURE with `exposure: None` binds the internal `Rg32Float`
+    // default-exposure texture as an SRV. The exposure texture is `Rg32Float`
+    // at every profile and only ever point-loaded, so its SRV must be bound
+    // unfilterable; otherwise a device without `float32-filterable` rejects the
+    // format at bind-group creation. We drop `FLOAT32_FILTERABLE` here (the
+    // baseline a portable consumer targets) so the binding is exercised under
+    // the same constraint a real Metal/Tier2 device hits — the other smoke
+    // tests request every adapter feature and never bind exposure.
+    run_dispatch_smoke(
+        None,
+        FsrContextFlags::HIGH_DYNAMIC_RANGE | FsrContextFlags::AUTO_EXPOSURE,
+        wgpu::Features::FLOAT32_FILTERABLE,
+    );
+}
+
+fn run_dispatch_smoke(
+    format_profile: Option<FormatProfile>,
+    flags: FsrContextFlags,
+    disable_features: wgpu::Features,
+) {
     // Setup device and queue
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
@@ -1134,8 +1167,12 @@ fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
         .expect("Failed to find an appropriate adapter");
 
+    // Some smoke tests deliberately drop optional features (e.g.
+    // `float32-filterable`) to model a portable consumer and exercise the
+    // format-feature fallbacks.
+    let required_features = adapter.features().difference(disable_features);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: adapter.features(),
+        required_features,
         required_limits: adapter.limits(),
         memory_hints: wgpu::MemoryHints::default(),
         experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
@@ -1152,7 +1189,7 @@ fn run_dispatch_smoke(format_profile: Option<FormatProfile>) {
     let fsr_context = FsrContext::new(FsrContextInfo {
         adapter: adapter.clone(),
         device: device.clone(),
-        flags: FsrContextFlags::HIGH_DYNAMIC_RANGE,
+        flags,
         format_profile,
     });
 
