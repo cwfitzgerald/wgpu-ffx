@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["wgpu-ffx", "wgpu-ffx-shaders-spv", "xtask"]
+members = ["examples/fsr-demo", "wgpu-ffx", "wgpu-ffx-shaders-spv", "xtask"]
 
 [workspace.package]
 authors = ["wgpu-ffx developers", "Advanced Micro Devices, Inc."]

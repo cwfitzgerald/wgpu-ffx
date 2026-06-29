@@ -1,0 +1,24 @@
+[package]
+name = "fsr-demo"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+wgpu = { workspace = true, features = ["wgsl", "metal", "vulkan", "dx12"] }
+wgpu-ffx = { path = "../../wgpu-ffx" }
+
+egui = "0.35"
+egui-wgpu = "0.35"
+egui-winit = "0.35"
+winit = "0.30"
+
+gltf = "1.4"
+glam = { version = "0.30", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+
+pollster = "0.4"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
