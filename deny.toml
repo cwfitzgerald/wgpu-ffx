@@ -22,6 +22,8 @@ skip = [
 
     # foldhash 0.1 and 0.2 follow the same hashbrown 0.15/0.16 split.
     { crate = "foldhash@0.1", reason = "wgpu transitive dependency split" },
+
+    { crate = "syn@2", reason = "transitive proc-macro dependencies use both 2 and 3" },
 ]
 
 [sources]
