@@ -27,7 +27,10 @@ impl FsrPass {
             unsafe {
                 device.create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
                     label: Some(kind.label()),
-                    num_workgroups: (0, 0, 0),
+                    entry_points: Cow::Owned(vec![wgpu::PassthroughShaderEntryPoint {
+                        name: Cow::Borrowed("main"),
+                        workgroup_size: (1, 1, 1),
+                    }]),
                     spirv: Some(Cow::Borrowed(bytemuck::cast_slice(kind.shader(shaders)))),
                     dxil: None,
                     msl: None,

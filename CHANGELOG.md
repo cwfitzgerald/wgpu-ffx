@@ -20,6 +20,10 @@ Per Keep a Changelog there are 6 main categories of changes:
 
 ## Unreleased
 
+### Changed
+
+- Internal: bumped `wgpu` from 29 to 30. @SemyonTs
+
 ## v0.1.0
 
 Released 2026-04-21
