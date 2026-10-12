@@ -20,6 +20,13 @@ Per Keep a Changelog there are 6 main categories of changes:
 
 ## Unreleased
 
+### Fixed
+
+- Fix ghosting on moving content: the accumulate pass bound the input motion
+  vectors but the shader reads the dilated ones, and vice versa with
+  `FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS`, so history was
+  reprojected along the wrong motion vectors. @cristicbz
+
 ## v0.1.0
 
 Released 2026-04-21

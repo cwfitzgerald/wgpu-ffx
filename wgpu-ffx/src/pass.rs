@@ -185,9 +185,9 @@ impl FsrPassKind {
         use crate::resources::FsrResourceName::*;
 
         let motion_vectors = if flags.contains(FsrContextFlags::DISPLAY_RESOLUTION_MOTION_VECTORS) {
-            OutputDilatedMotionVectors
-        } else {
             InputMotionVectors
+        } else {
+            OutputDilatedMotionVectors
         };
 
         #[rustfmt::skip]
